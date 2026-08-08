@@ -42,7 +42,8 @@ argued in the ADR.
 ### 2. `GuildPlayer` is the single state authority
 
 Everything mutable about a guild — voice connection, queue, current track, loop mode, volume, radio
-mode — lives in one `GuildPlayer`. Commands call intent methods and render what comes back. They do
+mode, and endless-random look-ahead/history — lives in one `GuildPlayer`. Commands call intent
+methods and render what comes back. They do
 not reach into the queue array, do not touch a `VoiceConnection`, and do not build an
 `AudioResource`.
 

@@ -78,6 +78,46 @@ export function createArchiveService({ api, config, clock = Date, logger = null 
             return api.health();
         },
 
+        /**
+         * Random playable tracks for the endless shuffle.
+         *
+         * Sourced from `/radio/random/`, which returns real library files and so
+         * never yields the ~third of archive records that have no `path`.
+         * Requests run concurrently and failures are tolerated: a short batch is
+         * fine, an exception mid-playback is not.
+         *
+         * Deliberately not cached — a cached random is not random.
+         *
+         * @param {number} count how many to try for
+         * @param {{ exclude?: Set<number> }} [options] recently played ids to skip
+         */
+        async randomSongs(count = 5, { exclude = new Set() } = {}) {
+            const wanted = Math.max(1, Math.min(10, Math.trunc(count) || 1));
+            const settled = await Promise.allSettled(
+                Array.from({ length: wanted }, () => api.radioRandom())
+            );
+
+            const songs = [];
+            const seen = new Set();
+            for (const outcome of settled) {
+                if (outcome.status !== "fulfilled") {
+                    logger?.debug("random track fetch failed", { reason: outcome.reason?.message });
+                    continue;
+                }
+                const payload = outcome.value;
+                const record = payload?.song
+                    ? { ...payload.song, path: payload.song.path || payload.path }
+                    : payload;
+
+                const song = normalizeSong(record, options);
+                if (!song.streamUrl || !isPlayablePath(song.path)) continue;
+                if (song.id && (seen.has(song.id) || exclude.has(song.id))) continue;
+                if (song.id) seen.add(song.id);
+                songs.push(song);
+            }
+            return songs;
+        },
+
         /** Ranked candidates for a query, highest score first. */
         async search(query, { limit = 10 } = {}) {
             const page = await searchRaw(query);

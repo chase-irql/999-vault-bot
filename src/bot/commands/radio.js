@@ -56,12 +56,21 @@ export default {
         }
 
         const channel = requireVoiceChannel(ctx);
+        const existing = players.get(ctx.guildId);
+        if (existing?.randomMode) {
+            throw new UserError("Endless shuffle is playing. Use `random stop` before starting 999 FM.");
+        }
         await ctx.defer();
 
         // Subscribing refreshes the station first, so the stream URL used is
         // current rather than whatever was cached minutes ago.
         await radio.subscribe(ctx.guildId);
-        await players.ensure(ctx.guildId).startRadio({ channel, streamUrl: radio.streamUrl() });
+        try {
+            await players.ensure(ctx.guildId).startRadio({ channel, streamUrl: radio.streamUrl() });
+        } catch (error) {
+            radio.unsubscribe(ctx.guildId);
+            throw error;
+        }
 
         const message = await ctx.reply(radio.buildEmbedPayload());
 

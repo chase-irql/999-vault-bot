@@ -99,6 +99,7 @@ The prefix is case-insensitive, so `JW!play` works. There are no slash commands 
 |---|---|---|
 | `jw!play <query\|id>` | `p` | Resolve a track, join your channel, play or queue it. |
 | `jw!playnext <query\|id>` | `pn` | Same, but next in line. |
+| `jw!random [stop]` | `endless` | Endless random archive shuffle; stop restores your suspended queue. |
 | `jw!pause` / `jw!resume` | `unpause` | Pause and resume. |
 | `jw!skip` | `s`, `next` | Next track. |
 | `jw!stop` | | Clear the queue and leave. |
@@ -127,6 +128,11 @@ prompt.
 `jw!radio stop` resumes the track you were on, at the position you left it. While the station plays,
 `seek`, `loop`, `skip` and queue edits refuse with an explanation — it is a live stream. `pause`,
 `volume` and `stop` still work.
+
+**Endless shuffle also suspends instead of clearing.** `jw!random` immediately switches to a
+random playable archive track, keeps eight distinct tracks ready ahead, and avoids the eight most
+recent tracks. `jw!random stop` resumes the interrupted track at its previous position with the
+original queue and loop mode intact. `jw!stop` ends both the shuffle and the suspended queue.
 
 ## Configuration
 

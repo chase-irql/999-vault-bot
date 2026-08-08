@@ -32,14 +32,20 @@ function harness({ resolveResult, searchResult } = {}) {
 
     const archive = {
         resolve: async () => resolveResult ?? { kind: "one", song: song({ id: 1, title: "Track One" }), score: 1000 },
+        randomSongs: async (count) =>
+            Array.from({ length: count }, (_, index) =>
+                song({ id: 100 + index, title: `Random ${100 + index}`, path: `Random/${100 + index}.mp3` })
+            ),
         search: async () => searchResult ?? { totalCount: 0, results: [] },
         stats: async () => ({ totalSongs: 2525, categoryStats: {}, eraStats: {} }),
     };
 
     const pending = createPendingResolutions({ logger: silentLogger(), timeoutMs: 50 });
     const radio = {
-        subscribe: async () => {},
-        unsubscribe: () => {},
+        subscribeCalls: [],
+        unsubscribeCalls: [],
+        subscribe: async (guildId) => radio.subscribeCalls.push(guildId),
+        unsubscribe: (guildId) => radio.unsubscribeCalls.push(guildId),
         streamUrl: () => "https://juicewrldapi.com/juicewrld/radio/stream.mp3",
         buildEmbed: () => ({ color: 1, title: "999 FM" }),
         buildEmbedPayload: () => ({ embeds: [{ color: 1, title: "999 FM" }] }),
@@ -308,6 +314,59 @@ describe("playback controls", () => {
     test("leave when not connected is informational", async () => {
         const deps = harness();
         assert.equal((await run("leave", deps)).replies.at(-1).embeds[0].title, "Not connected");
+    });
+});
+
+describe("random command", () => {
+    test("starts endless shuffle and advertises the stop command", async () => {
+        const deps = harness();
+        const ctx = await run("random", deps);
+
+        const state = deps.players.get(GUILD).snapshot();
+        assert.equal(ctx.deferred, true);
+        assert.equal(state.randomMode, true);
+        assert.equal(state.current.song.id, 100);
+        assert.match(embedText(lastEmbed(ctx)), /random stop/i);
+    });
+
+    test("stop restores the track and queue that random suspended", async () => {
+        const deps = harness();
+        await run("play", deps, { rest: "one" });
+        await run("play", deps, { rest: "two" });
+        await run("random", deps);
+
+        const ctx = await run("random", deps, { args: ["stop"] });
+        const state = deps.players.get(GUILD).snapshot();
+        assert.equal(state.randomMode, false);
+        assert.equal(state.current.song.id, 1);
+        assert.equal(state.queueLength, 1);
+        assert.match(embedText(lastEmbed(ctx)), /resuming/i);
+    });
+
+    test("requires voice before fetching or joining", async () => {
+        const deps = harness();
+        let calls = 0;
+        deps.archive.randomSongs = async () => {
+            calls += 1;
+            return [];
+        };
+
+        await assert.rejects(() => run("random", deps, { voiceChannel: null }), /Join a voice channel first/);
+        assert.equal(calls, 0);
+        assert.equal(deps.voice.connections.length, 0);
+    });
+
+    test("rejects unknown options with valid invocations", async () => {
+        const deps = harness();
+        await assert.rejects(() => run("random", deps, { args: ["banana"] }), /jw!random stop/);
+    });
+
+    test("radio refuses before subscribing while endless shuffle is active", async () => {
+        const deps = harness();
+        await run("random", deps);
+
+        await assert.rejects(() => run("radio", deps), /random stop/i);
+        assert.equal(deps.radio.subscribeCalls.length, 0);
     });
 });
 

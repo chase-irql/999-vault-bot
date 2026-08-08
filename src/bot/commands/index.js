@@ -19,6 +19,7 @@ import {
     volume,
 } from "./playback.js";
 import radio from "./radio.js";
+import random from "./random.js";
 import search from "./search.js";
 import song from "./song.js";
 import stats from "./stats.js";
@@ -45,6 +46,7 @@ import stats from "./stats.js";
 const COMMANDS = [
     play,
     playNext,
+    random,
     pause,
     resume,
     skip,

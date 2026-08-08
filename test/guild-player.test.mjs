@@ -28,6 +28,23 @@ function build({ config = testConfig(), voiceOptions = {}, rng = () => 0 } = {})
 const enqueue = (player, channel, id) =>
     player.enqueue(song({ id, title: `Track ${id}` }), { requesterId: "u1", channel });
 
+function endlessFetcher(start = 100) {
+    let nextId = start;
+    const calls = [];
+    const fetch = async (count, { exclude = new Set() } = {}) => {
+        calls.push({ count, exclude: new Set(exclude) });
+        const songs = [];
+        while (songs.length < count) {
+            const id = nextId++;
+            if (exclude.has(id)) continue;
+            songs.push(song({ id, title: `Random ${id}`, path: `Random/${id}.mp3` }));
+        }
+        return songs;
+    };
+    fetch.calls = calls;
+    return fetch;
+}
+
 describe("connection lifecycle", () => {
     test("joining connects once and reports the channel", async () => {
         const { player, voice, channel } = build();
@@ -420,6 +437,84 @@ describe("radio mode", () => {
     test("stopping the station when it is not playing is a user error", async () => {
         const { player } = build();
         await assert.rejects(() => player.stopRadio(), UserError);
+    });
+});
+
+describe("endless random mode", () => {
+    test("starts immediately and maintains an eight-track look-ahead", async () => {
+        const { player, channel } = build();
+        const fetchSongs = endlessFetcher();
+
+        const result = await player.startRandom({ channel, requesterId: "u1", fetchSongs });
+        await new Promise((resolve) => setImmediate(resolve));
+
+        assert.equal(result.changed, true);
+        assert.equal(player.snapshot().current.song.id, 100);
+        assert.equal(player.snapshot().randomMode, true);
+        assert.equal(player.snapshot().randomUpcomingLength, 8);
+    });
+
+    test("keeps advancing through random tracks after the visible queue is empty", async () => {
+        const { player, channel } = build();
+        const fetchSongs = endlessFetcher();
+        await player.startRandom({ channel, requesterId: "u1", fetchSongs });
+
+        const heard = [player.snapshot().current.song.id];
+        for (let index = 0; index < 12; index += 1) {
+            const { next } = await player.skip();
+            heard.push(next.song.id);
+        }
+
+        assert.equal(new Set(heard).size, heard.length, "the recent window must not repeat");
+        assert.equal(player.snapshot().randomMode, true, "shuffle remains active until explicitly stopped");
+        assert.equal(player.snapshot().current.requesterId, "u1");
+    });
+
+    test("suspends and restores the prior track, position, queue, and loop mode", async () => {
+        const { player, channel, createSourceFn } = build();
+        await enqueue(player, channel, 1);
+        await enqueue(player, channel, 2);
+        player.setLoop("queue");
+        createSourceFn.last().advance(45_000);
+
+        await player.startRandom({ channel, requesterId: "u1", fetchSongs: endlessFetcher() });
+        assert.equal(player.snapshot().current.song.id, 100);
+        assert.equal(player.snapshot().suspendedQueueLength, 1);
+
+        const result = await player.stopRandom();
+        assert.equal(result.resumed.song.id, 1);
+        assert.equal(result.resumedAtSeconds, 45);
+        assert.equal(player.snapshot().queue.at(0).song.id, 2);
+        assert.equal(player.snapshot().loop, "queue");
+        assert.equal(createSourceFn.last().options.seekSeconds, 45);
+    });
+
+    test("does not interrupt existing playback when the archive returns no random track", async () => {
+        const { player, channel, createSourceFn } = build();
+        await enqueue(player, channel, 1);
+        const original = createSourceFn.last();
+
+        await assert.rejects(
+            () => player.startRandom({ channel, requesterId: "u1", fetchSongs: async () => [] }),
+            /could not find a random playable track/i
+        );
+
+        assert.equal(player.snapshot().current.song.id, 1);
+        assert.equal(player.snapshot().randomMode, false);
+        assert.equal(original.destroyed, false);
+    });
+
+    test("queue mutations and radio explain how to leave random mode", async () => {
+        const { player, channel } = build();
+        await player.startRandom({ channel, requesterId: "u1", fetchSongs: endlessFetcher() });
+
+        await assert.rejects(() => enqueue(player, channel, 5), /random stop/i);
+        assert.throws(() => player.setLoop("track"), /random stop/i);
+        assert.throws(() => player.clearQueue(), /suspended/i);
+        await assert.rejects(
+            () => player.startRadio({ channel, streamUrl: "https://example.com/radio.mp3" }),
+            /random stop/i
+        );
     });
 });
 

@@ -141,6 +141,11 @@ export const queueCommand = {
                 "999 FM is playing, so the queue is suspended. `radio stop` restores it where you left it."
             );
         }
+        if (player.randomMode) {
+            throw new UserError(
+                "Endless shuffle is playing, so the queue is suspended. `random stop` restores it where you left it."
+            );
+        }
 
         const requested = ctx.args[0] ? requirePosition(ctx.args[0], "Page", `${ctx.deps.config.prefix}queue 2`) : 1;
         const view = player.queuePage(requested, QUEUE_PAGE_SIZE);

@@ -25,6 +25,10 @@ import { createSource } from "./source.js";
 const READY_TIMEOUT_MS = 15_000;
 const RECONNECT_WINDOW_MS = 5_000;
 
+/** Mirrors the desktop client's endless-listen look-ahead and recent window. */
+const RANDOM_AHEAD_COUNT = 8;
+const RANDOM_RECENT_COUNT = 8;
+
 /** Station reconnect schedule: 2s, 4s, 8s, 16s, 30s. */
 const RADIO_BACKOFF_MS = [2_000, 4_000, 8_000, 16_000, 30_000];
 
@@ -66,6 +70,14 @@ export function createGuildPlayer({
     let radioAttempt = 0;
     let radioRetryTimer = null;
     let radioStreamUrl = "";
+
+    let randomMode = false;
+    let randomFetcher = null;
+    let randomRequesterId = null;
+    let randomUpcoming = [];
+    let randomRecent = [];
+    let randomFillPromise = null;
+    let randomGeneration = 0;
 
     let idleTimer = null;
     let bufferingSeen = 0;
@@ -117,6 +129,93 @@ export function createGuildPlayer({
         source?.resource?.volume?.setVolume(volume / 100);
     }
 
+    function randomSongKey(song) {
+        if (song?.id !== null && song?.id !== undefined) return `id:${song.id}`;
+        return song?.path ? `path:${song.path}` : null;
+    }
+
+    function clearRandomMode() {
+        randomMode = false;
+        randomFetcher = null;
+        randomRequesterId = null;
+        randomUpcoming = [];
+        randomRecent = [];
+        randomFillPromise = null;
+        randomGeneration += 1;
+    }
+
+    /**
+     * Keeps metadata for eight random tracks ready without putting synthetic
+     * entries in the user's visible queue. The promise only mutates the random
+     * buffer, so an idle transition can safely await the same in-flight refill.
+     */
+    function scheduleRandomRefill() {
+        if (!randomMode || destroyed || radioMode || randomUpcoming.length >= RANDOM_AHEAD_COUNT) {
+            return randomFillPromise ?? Promise.resolve(randomUpcoming.length);
+        }
+        if (randomFillPromise) return randomFillPromise;
+
+        const generation = randomGeneration;
+        const blocked = new Set([
+            randomSongKey(current?.song),
+            ...randomRecent,
+            ...randomUpcoming.map((song) => randomSongKey(song)),
+        ].filter(Boolean));
+        const excludedIds = new Set(
+            [current?.song, ...randomUpcoming]
+                .map((song) => song?.id)
+                .filter((id) => id !== null && id !== undefined)
+        );
+        for (const key of randomRecent) {
+            if (key.startsWith("id:")) excludedIds.add(Number(key.slice(3)));
+        }
+
+        const wanted = RANDOM_AHEAD_COUNT - randomUpcoming.length;
+        const request = Promise.resolve()
+            .then(() => randomFetcher(wanted, { exclude: excludedIds }))
+            .then((songs) => {
+                if (!randomMode || destroyed || generation !== randomGeneration) return randomUpcoming.length;
+                for (const song of Array.isArray(songs) ? songs : []) {
+                    const key = randomSongKey(song);
+                    if (!key || blocked.has(key) || !song?.streamUrl) continue;
+                    blocked.add(key);
+                    randomUpcoming.push(song);
+                    if (randomUpcoming.length >= RANDOM_AHEAD_COUNT) break;
+                }
+                return randomUpcoming.length;
+            })
+            .catch((error) => {
+                if (generation === randomGeneration) {
+                    log.warn("endless shuffle refill failed", { error });
+                }
+                return randomUpcoming.length;
+            })
+            .finally(() => {
+                if (randomFillPromise === request) randomFillPromise = null;
+            });
+        randomFillPromise = request;
+        return request;
+    }
+
+    async function takeRandomItem() {
+        // A transient empty/duplicate batch gets two more chances before the
+        // suspended queue is restored. A healthy session ordinarily consumes
+        // the already-filled look-ahead without waiting here at all.
+        for (let attempt = 0; randomMode && randomUpcoming.length === 0 && attempt < 3; attempt += 1) {
+            await scheduleRandomRefill();
+        }
+        if (!randomMode || randomUpcoming.length === 0) return null;
+
+        const song = randomUpcoming.shift();
+        const key = randomSongKey(song);
+        if (key) {
+            randomRecent.push(key);
+            if (randomRecent.length > RANDOM_RECENT_COUNT) randomRecent.shift();
+        }
+        void scheduleRandomRefill();
+        return { song, requesterId: randomRequesterId };
+    }
+
     /** Builds and plays a resource for `item`, starting at `seekSeconds`. */
     function startResource(item, seekSeconds = 0) {
         stopSource();
@@ -151,6 +250,33 @@ export function createGuildPlayer({
         if (radioMode) {
             // The station has no queue to advance into; a drop is a reconnect.
             return null;
+        }
+
+        if (randomMode) {
+            const next = await takeRandomItem();
+            if (next) {
+                startResource(next);
+                return next;
+            }
+
+            log.warn("endless shuffle exhausted, restoring suspended queue");
+            clearRandomMode();
+            const resumeAt = suspendedElapsedSeconds;
+            suspendedElapsedSeconds = 0;
+            const resumed = restoreQueue();
+            if (resumed) {
+                startResource(resumed, resumeAt);
+                events.emit("random-failed");
+                return resumed;
+            }
+            const { state: restoredState, item } = queue.dequeue(state);
+            state = restoredState;
+            if (item) {
+                startResource(item);
+                events.emit("random-failed");
+                return item;
+            }
+            events.emit("random-failed");
         }
 
         const finished = failed ?? current;
@@ -384,6 +510,7 @@ export function createGuildPlayer({
             channelId,
             status,
             radioMode,
+            randomMode,
             current,
             elapsedSeconds: elapsedSeconds(),
             queue: state.items,
@@ -392,6 +519,7 @@ export function createGuildPlayer({
             volume,
             totalDurationSeconds: queue.totalDuration(state, current),
             suspendedQueueLength: suspendedQueue?.items.length ?? 0,
+            randomUpcomingLength: randomUpcoming.length,
         };
     }
 
@@ -415,7 +543,11 @@ export function createGuildPlayer({
         channelId = null;
         current = null;
         state = queue.createQueue();
+        suspendedQueue = null;
+        suspendedCurrent = null;
+        suspendedElapsedSeconds = 0;
         radioMode = false;
+        clearRandomMode();
         log.info("player destroyed", { reason });
         onDestroy?.(guildId, reason);
         events.emit("destroyed", reason);
@@ -432,6 +564,9 @@ export function createGuildPlayer({
         },
         get radioMode() {
             return radioMode;
+        },
+        get randomMode() {
+            return randomMode;
         },
         get channelId() {
             return channelId;
@@ -455,6 +590,11 @@ export function createGuildPlayer({
                 if (radioMode) {
                     throw new UserError(
                         "The station is playing. Use `radio stop` to go back to the queue, then add tracks."
+                    );
+                }
+                if (randomMode) {
+                    throw new UserError(
+                        "Endless shuffle is playing. Use `random stop` to restore your queue, then add tracks."
                     );
                 }
 
@@ -536,6 +676,7 @@ export function createGuildPlayer({
 
         setLoop(mode) {
             if (radioMode) throw new UserError("Loop does not apply to a live stream.");
+            if (randomMode) throw new UserError("Loop does not apply to endless shuffle. Use `random stop` first.");
             const result = queue.setLoop(state, mode);
             if (isErr(result)) throw new UserError(result.error);
             state = result.value;
@@ -544,12 +685,14 @@ export function createGuildPlayer({
 
         cycleLoop() {
             if (radioMode) throw new UserError("Loop does not apply to a live stream.");
+            if (randomMode) throw new UserError("Loop does not apply to endless shuffle. Use `random stop` first.");
             state = queue.cycleLoop(state);
             return state.loop;
         },
 
         shuffleQueue() {
             if (radioMode) throw new UserError("The station queue is not yours to shuffle.");
+            if (randomMode) throw new UserError("Your queue is suspended during endless shuffle.");
             if (queue.size(state) < 2) throw new UserError("There are not enough queued tracks to shuffle.");
             state = queue.shuffle(state, rng);
             return snapshot();
@@ -557,6 +700,7 @@ export function createGuildPlayer({
 
         removeAt(position) {
             if (radioMode) throw new UserError("The queue is suspended while the station is playing.");
+            if (randomMode) throw new UserError("The queue is suspended during endless shuffle.");
             const result = queue.remove(state, position);
             if (isErr(result)) throw new UserError(result.error);
             state = result.value.state;
@@ -565,6 +709,7 @@ export function createGuildPlayer({
 
         moveItem(from, to) {
             if (radioMode) throw new UserError("The queue is suspended while the station is playing.");
+            if (randomMode) throw new UserError("The queue is suspended during endless shuffle.");
             const result = queue.move(state, from, to);
             if (isErr(result)) throw new UserError(result.error);
             state = result.value.state;
@@ -573,6 +718,7 @@ export function createGuildPlayer({
 
         clearQueue() {
             if (radioMode) throw new UserError("The queue is suspended while the station is playing.");
+            if (randomMode) throw new UserError("The queue is suspended during endless shuffle.");
             const removed = queue.size(state);
             state = queue.clear(state);
             return { removed, snapshot: snapshot() };
@@ -583,12 +729,84 @@ export function createGuildPlayer({
         },
 
         /**
+         * Starts the desktop-style endless shuffle. The listener's current
+         * track and queue are suspended intact and restored by `random stop`.
+         */
+        startRandom({ channel, requesterId, fetchSongs }) {
+            return withLock(async () => {
+                await connect(channel);
+                if (radioMode) {
+                    throw new UserError("999 FM is playing. Use `radio stop` before starting endless shuffle.");
+                }
+                if (randomMode) return { changed: false, snapshot: snapshot() };
+                if (typeof fetchSongs !== "function") throw new TypeError("startRandom requires a song fetcher");
+
+                randomMode = true;
+                randomFetcher = fetchSongs;
+                randomRequesterId = requesterId;
+                randomUpcoming = [];
+                randomRecent = [];
+                randomFillPromise = null;
+                randomGeneration += 1;
+
+                await scheduleRandomRefill();
+                if (randomUpcoming.length === 0) {
+                    clearRandomMode();
+                    scheduleIdleDisconnect();
+                    throw new UserError("I could not find a random playable track right now. Try again in a moment.");
+                }
+
+                suspendedQueue = state;
+                suspendedCurrent = current;
+                suspendedElapsedSeconds = Math.floor(elapsedSeconds());
+                state = queue.createQueue("off");
+                current = null;
+                stopSource();
+
+                const next = await takeRandomItem();
+                startResource(next);
+                clearIdleTimer();
+                return { changed: true, current: next, snapshot: snapshot() };
+            });
+        },
+
+        /** Stops endless shuffle and restores the exact interrupted playback. */
+        stopRandom() {
+            return withLock(async () => {
+                if (!randomMode) throw new UserError("Endless shuffle is not playing.");
+                clearRandomMode();
+                stopSource();
+
+                const resumeAt = suspendedElapsedSeconds;
+                suspendedElapsedSeconds = 0;
+                const resume = restoreQueue();
+                if (resume) {
+                    startResource(resume, resumeAt);
+                    return { resumed: resume, resumedAtSeconds: resumeAt, snapshot: snapshot() };
+                }
+                const { state: nextState, item } = queue.dequeue(state);
+                state = nextState;
+                if (item) {
+                    startResource(item);
+                    return { resumed: item, snapshot: snapshot() };
+                }
+                status = "idle";
+                current = null;
+                scheduleIdleDisconnect();
+                return { resumed: null, snapshot: snapshot() };
+            });
+        },
+
+        /**
          * Enters radio mode. The queue is **suspended**, not destroyed: leaving
          * radio mode puts the listener back where they were.
          */
         startRadio({ channel, streamUrl }) {
             return withLock(async () => {
                 await connect(channel);
+                if (randomMode) {
+                    throw new UserError("Endless shuffle is playing. Use `random stop` before starting 999 FM.");
+                }
                 if (!radioMode) {
                     suspendedQueue = state;
                     suspendedCurrent = current;

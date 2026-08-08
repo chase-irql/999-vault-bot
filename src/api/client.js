@@ -272,6 +272,15 @@ export class ArchiveApi {
         return this.get("/radio/live/", {}, { attempts: 2, timeoutMs: 10_000 });
     }
 
+    /**
+     * One random track from the station's library. Preferred over picking a
+     * random `/songs/` page because everything here is a real file — a random
+     * page is roughly a quarter unplayable records with no `path`.
+     */
+    radioRandom() {
+        return this.get("/radio/random/", {}, { attempts: 2, timeoutMs: 10_000 });
+    }
+
     /** Absolute HTTPS URL for a song's audio. Supports Range; FFmpeg reads it directly. */
     streamUrl(path) {
         return this.url("/files/download/", { path }).toString();

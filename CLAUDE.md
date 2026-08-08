@@ -68,6 +68,7 @@ reasoning there is also the reason not to reintroduce them casually. Each comman
 |---|---|---|
 | `play <query\|id>` | `p` | Resolve, join the invoker's channel, enqueue. Starts if idle, else reports queue position. |
 | `playnext <query\|id>` | `pn` | Same, inserted at position 1. |
+| `random [stop]` | `endless` | Endless random archive mode with eight ahead/eight recent; stop restores the suspended queue. |
 | `pause` / `resume` | `unpause` | Idempotent — pausing a paused player replies "already paused". |
 | `skip` | `s`, `next` | Advance. A `track` loop is cleared for this advance only. |
 | `stop` | | Clear the queue, stop, leave. |

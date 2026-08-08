@@ -73,6 +73,14 @@ describe("live archive contract", { skip }, () => {
         assert.ok("stale_seconds" in radio);
     });
 
+    test("/radio/random/ returns a playable archive song", async () => {
+        const random = await api.radioRandom();
+        assert.ok(random?.song && typeof random.song === "object");
+        assert.ok(random.song.id);
+        assert.equal(random.song.path || random.path, random.path);
+        assert.match(random.path, /\.(mp3|m4a|ogg|wav)$/i);
+    });
+
     test("/radio/live/ still returns a cleartext stream_url that must be upgraded", async () => {
         const radio = await api.radioLive();
         // If this ever fails because the archive started returning https, that is

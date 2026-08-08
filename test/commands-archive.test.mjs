@@ -287,3 +287,51 @@ describe("archive service caching", () => {
         assert.equal(outcome.kind, "none");
     });
 });
+
+describe("random archive tracks", () => {
+    test("uses the playable radio endpoint and normalizes nested song payloads", async () => {
+        const seen = [];
+        let cursor = 0;
+        const api = new ArchiveApi({
+            baseUrl: config.apiBaseUrl,
+            minIntervalMs: 0,
+            fetchImpl: async (url) => {
+                seen.push(new URL(url).pathname);
+                const record = fixtures.songs[cursor++ % fixtures.songs.length];
+                return new Response(JSON.stringify({ path: record.path, song: record }), {
+                    status: 200,
+                    headers: { "content-type": "application/json" },
+                });
+            },
+        });
+        const archive = createArchiveService({ api, config, clock: fakeClock() });
+
+        const songs = await archive.randomSongs(3);
+
+        assert.equal(seen.length, 3);
+        assert.ok(seen.every((path) => path.endsWith("/radio/random/")));
+        assert.equal(songs.length, 3);
+        assert.ok(songs.every((entry) => entry.streamUrl && entry.path));
+    });
+
+    test("filters duplicates, recent ids, failures, and unplayable responses", async () => {
+        const playable = fixtures.songs[0];
+        const duplicate = { ...playable };
+        const excluded = fixtures.songs[1];
+        const unplayable = { ...fixtures.songs.find((entry) => !entry.path) };
+        const outcomes = [playable, duplicate, excluded, unplayable];
+        let cursor = 0;
+        const api = {
+            async radioRandom() {
+                const value = outcomes[cursor++];
+                if (cursor === outcomes.length) throw new Error("temporary outage");
+                return { path: value.path, song: value };
+            },
+        };
+        const archive = createArchiveService({ api, config, clock: fakeClock() });
+
+        const songs = await archive.randomSongs(5, { exclude: new Set([excluded.id]) });
+
+        assert.deepEqual(songs.map((entry) => entry.id), [playable.id]);
+    });
+});
