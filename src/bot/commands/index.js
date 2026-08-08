@@ -1,5 +1,8 @@
 import help from "./help.js";
 import ping from "./ping.js";
+import search from "./search.js";
+import song from "./song.js";
+import stats from "./stats.js";
 
 /**
  * The command registry. A command is defined exactly once here and reached by
@@ -18,7 +21,7 @@ import ping from "./ping.js";
  *   execute(ctx) receives a CommandContext, returns/throws
  */
 
-const COMMANDS = [ping, help];
+const COMMANDS = [search, song, stats, ping, help];
 
 function assertValid(commands) {
     const seen = new Map();

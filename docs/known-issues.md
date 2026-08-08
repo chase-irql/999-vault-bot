@@ -39,6 +39,35 @@ one. The consequence is honest but visible — a search for a track that exists 
 *index* but has no file returns no result, which can look like a search bug and is not. There is no
 fix available from this side.
 
+### KI-5 — Some tracks display under the archive's abbreviated title (Minor, cosmetic)
+
+`all girls are the same` resolves to the correct released recording but displays as
+**"AGATS (Pt. 1)"**, because the canonical title comes from `track_titles[0]` and that is what the
+archive puts first.
+
+**Reproduce:** `jw!song all girls are the same`.
+
+**Not fixed, deliberately:** the 999 Vault desktop client picks the title the same way. Diverging
+would mean the same query shows two different names in the two apps, which is a worse defect than an
+abbreviation. The full name appears on the alias line of the `song` embed.
+
+### KI-6 — An exact alias outranks a prefix match on a different track (Minor, by design)
+
+`misery` resolves to **"Sad Thing"**, which carries an exact archive alias `Misery` (950), beating a
+prefix match on `Misery Avenue` (700).
+
+**Reproduce:** `jw!song misery`.
+
+**Behaviour:** defensible — the archive asserts the alias — but a user may have meant the other
+track. Both appear together under `jw!search misery`. No change planned; changing the rule ordering
+to fix this would break more common cases than it fixes.
+
+### KI-7 — Era and album names are not searchable (Minor, scope)
+
+`outsiders` returns no match: it is an era/album name and no track is titled that. The reply names
+the term, suggests trying an alternate title, and states the archive size rather than a bare
+not-found. Era browsing is out of scope.
+
 ### KI-3 — `image_url` is often a shared placeholder (Minor, cosmetic)
 
 Many records return `/assets/999.jpg` rather than per-track art, so several different songs show an

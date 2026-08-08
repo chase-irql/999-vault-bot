@@ -1,0 +1,40 @@
+{
+ "station": "9 9 9 FM",
+ "state": "playing",
+ "dj_enabled": true,
+ "dj_line": "On · every 3-4 songs · ~3 until DJ",
+ "now_playing": {
+  "title": "Come & Go (v2)",
+  "artist": "Juice WRLD",
+  "album": "Outsiders (Sessions)",
+  "display": "Juice WRLD — Come & Go (v2)",
+  "elapsed_ms": 92419,
+  "duration_ms": 149817
+ },
+ "up_next": {
+  "title": "Diors (v1)",
+  "artist": "Juice WRLD",
+  "album": "WRLD ON DRUGS (Sessions)",
+  "display": "Juice WRLD — Diors (v1)",
+  "elapsed_ms": null,
+  "duration_ms": null
+ },
+ "queue_preview": [
+  "Juice WRLD — Diors (v1)",
+  "Juice WRLD, Lil Yachty — Livin' Life (with Lil Yachty)",
+  "Juice WRLD — Can't Survive",
+  "Juice WRLD — Bank Account",
+  "Juice WRLD — Spend It (v1)"
+ ],
+ "vote": {
+  "active": false
+ },
+ "discord_listeners": 0,
+ "is_live": true,
+ "stream_url": "http://juicewrldapi.com/juicewrld/radio/stream.mp3",
+ "stale_seconds": 0.1,
+ "web_listeners": 17,
+ "total_listeners": 17,
+ "eligible_web_voters": 9,
+ "eligible_voters": 9
+}

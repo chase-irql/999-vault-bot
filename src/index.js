@@ -1,5 +1,6 @@
 import process from "node:process";
 import { ArchiveApi } from "./api/client.js";
+import { createArchiveService } from "./api/resolve.js";
 import { createBotClient } from "./bot/client.js";
 import { createRegistry } from "./bot/commands/index.js";
 import { loadConfig, secretsOf } from "./config.js";
@@ -53,10 +54,20 @@ async function main() {
     const clock = { now: () => Date.now() };
     const registry = createRegistry();
 
+    // One archive service for the whole process: one cache, one rate gate. Guilds
+    // share it read-only, keyed by query, so no guild can observe another's work.
+    const archive = createArchiveService({
+        api,
+        config,
+        clock,
+        logger: logger.child({ module: "archive" }),
+    });
+
     const deps = {
         config,
         logger,
         api,
+        archive,
         registry,
         clock,
         startedAt,
