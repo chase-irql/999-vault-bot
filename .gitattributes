@@ -1,0 +1,6 @@
+# The repo runs on Windows and Linux from the same commands; normalize in the
+# index so a checkout on either platform produces a clean `git status`.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.mp3 binary

@@ -1,0 +1,40 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # npm ci is the only supported install path: the lockfile is committed and
+      # every dependency is pinned exactly.
+      - run: npm ci
+
+      # SKIP_LIVE=1 skips the integration tests that talk to the live archive.
+      # CI should not fail because someone else's server had a bad minute, and it
+      # should not add load to a public archive on every push.
+      - run: npm run verify
+        env:
+          SKIP_LIVE: "1"
+
+  # The voice smoke test (npm run verify:voice) is deliberately NOT run in CI.
+  # It needs a real bot token, a real guild, and a real voice channel, none of
+  # which belong in a public workflow — and its assertions are about audio
+  # timing on a real gateway connection, which a shared runner cannot measure
+  # meaningfully. It is run by a maintainer before a release; its JSON reports
+  # are committed under evidence/.

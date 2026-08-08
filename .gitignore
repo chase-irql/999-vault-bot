@@ -1,0 +1,22 @@
+node_modules/
+.env
+.env.*
+!.env.example
+
+# Captured audio must never be committed.
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.opus
+
+# Evidence: JSON reports and screenshots are committed; recordings are not.
+evidence/**/*.mp4
+evidence/**/*.mkv
+evidence/**/*.mov
+evidence/**/*.webm
+
+npm-debug.log*
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
