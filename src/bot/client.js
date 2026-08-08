@@ -101,9 +101,26 @@ export function createBotClient({ config, logger, deps }) {
         }
     }
 
+    /**
+     * Channel gating. Empty allowlist means every channel, which is the default
+     * and matches how Discord itself behaves.
+     *
+     * Note this is a convenience, not a security boundary: the real enforcement
+     * is Discord's own channel permission overwrites and, for the slash surface,
+     * Server Settings -> Integrations -> Command Permissions. Both of those stop
+     * the event reaching the process at all.
+     */
+    function channelAllowed(channelId) {
+        if (config.channelAllowlist.length === 0) return true;
+        return config.channelAllowlist.includes(channelId);
+    }
+
     function onMessageCreate(message) {
         void (async () => {
             if (message.author.bot || !message.guild) return;
+            // Silently ignored rather than refused: answering "wrong channel" in
+            // the wrong channel is the noise the allowlist exists to prevent.
+            if (!channelAllowed(message.channelId)) return;
 
             // A bare `1`-`5` may be answering an open disambiguation prompt.
             if (deps.pending?.handleMessage && (await deps.pending.handleMessage(message))) return;
@@ -127,6 +144,19 @@ export function createBotClient({ config, logger, deps }) {
             if (command.guildOnly && !interaction.guildId) {
                 await interaction.reply({
                     content: "That command only works inside a server.",
+                    flags: MessageFlags.Ephemeral,
+                });
+                return;
+            }
+
+            // Unlike the prefix surface this must answer. An unanswered
+            // interaction shows "The application did not respond", which reads
+            // as a broken bot rather than a deliberate restriction. Ephemeral,
+            // so declining does not clutter the channel.
+            if (!channelAllowed(interaction.channelId)) {
+                const where = config.channelAllowlist.map((id) => `<#${id}>`).join(", ");
+                await interaction.reply({
+                    content: `Commands are restricted to ${where}.`,
                     flags: MessageFlags.Ephemeral,
                 });
                 return;

@@ -58,7 +58,7 @@ function snowflake(env, key, { required = false } = {}) {
     return value;
 }
 
-function snowflakeList(env, key) {
+function snowflakeList(env, key, label = "ID") {
     const raw = optionalString(env, key);
     if (!raw) return Object.freeze([]);
     const ids = raw
@@ -67,7 +67,7 @@ function snowflakeList(env, key) {
         .filter(Boolean);
     for (const id of ids) {
         if (!SNOWFLAKE.test(id)) {
-            throw new ConfigError(`${key} entry "${id}" is not a Discord guild ID (17-20 digits).`);
+            throw new ConfigError(`${key} entry "${id}" is not a Discord ${label} (17-20 digits).`);
         }
     }
     return Object.freeze([...new Set(ids)]);
@@ -115,7 +115,8 @@ export function loadConfig(env) {
         clientId: snowflake(env, "DISCORD_CLIENT_ID", { required: true }),
         prefix: prefix(env),
         apiBaseUrl: httpsUrl(env, "API_BASE_URL", DEFAULTS.API_BASE_URL),
-        guildAllowlist: snowflakeList(env, "GUILD_ALLOWLIST"),
+        guildAllowlist: snowflakeList(env, "GUILD_ALLOWLIST", "guild ID"),
+        channelAllowlist: snowflakeList(env, "CHANNEL_ALLOWLIST", "channel ID"),
         logLevel,
         ffmpegPath: optionalString(env, "FFMPEG_PATH"),
         idleDisconnectMs: integer(env, "IDLE_DISCONNECT_MS", DEFAULTS.IDLE_DISCONNECT_MS, {

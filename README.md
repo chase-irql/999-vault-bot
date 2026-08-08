@@ -63,6 +63,28 @@ On Windows PowerShell, use `Copy-Item .env.example .env` for the copy step.
 5. **Restrict it.** This bot is built for private servers. Set `GUILD_ALLOWLIST` to your guild IDs —
    the bot leaves any guild not on the list immediately after joining.
 
+### Restricting commands to certain channels
+
+By default commands work in **every channel the bot can see**. Three ways to change that, strongest
+first:
+
+- **Channel permission overwrites.** Deny the bot **View Channel** where you don't want it. It stops
+  receiving those messages entirely — nothing reaches the bot at all.
+- **Server Settings → Integrations → 999 Vault → Command Permissions.** Discord's native
+  per-command channel and role restrictions. This is the right tool for **slash** commands, and it
+  is enforced by Discord before the bot is involved.
+- **`CHANNEL_ALLOWLIST`** in `.env` — comma-separated channel IDs. This covers the **prefix**
+  surface, which the two options above can only restrict by hiding the channel from the bot
+  altogether. Outside the allowlist, `jw!` commands are ignored silently and slash commands get a
+  private reply pointing at the right channel.
+
+  ```
+  CHANNEL_ALLOWLIST=1040000000000000010,1040000000000000011
+  ```
+
+  Treat this as convenience, not access control: the message still reaches the process. For anything
+  you actually need enforced, use the first two.
+
 ## Commands
 
 Every command works as `jw!name` **and** `/name`, with identical behaviour — each is defined once and

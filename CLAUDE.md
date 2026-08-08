@@ -40,6 +40,7 @@ is committed with every key.
 | `COMMAND_PREFIX` | no | Default `jw!`. No whitespace, ≤ 8 chars. Matched case-insensitively. |
 | `API_BASE_URL` | no | Default `https://juicewrldapi.com/juicewrld`. Must be https. |
 | `GUILD_ALLOWLIST` | no | Comma-separated guild IDs. Non-empty ⇒ leave any guild not listed. |
+| `CHANNEL_ALLOWLIST` | no | Comma-separated channel IDs. Non-empty ⇒ only accept commands there. Empty ⇒ every channel. |
 | `LOG_LEVEL` | no | `debug` \| `info` \| `warn` \| `error` \| `silent`. Default `info`. |
 | `FFMPEG_PATH` | no | Absolute path to a system FFmpeg. Empty ⇒ use `ffmpeg-static`. |
 | `IDLE_DISCONNECT_MS` | no | Default `300000`. Leave voice after this long alone in a channel. |
@@ -160,6 +161,22 @@ Discord event -> router/interaction -> CommandContext -> command
 One direction. Nothing flows backward.
 
 ---
+
+### Where commands are accepted
+
+By default every channel the bot can see. Three layers, in order of strength:
+
+1. **Discord channel permission overwrites** — deny the bot `View Channel` and it never receives the
+   event. Strongest, and the one Discord's model expects.
+2. **Server Settings → Integrations → Command Permissions** — native per-command channel and role
+   restrictions for the **slash** surface, enforced before the interaction is dispatched.
+3. **`CHANNEL_ALLOWLIST`** — in-process gate in `bot/client.js`, covering the **prefix** surface,
+   which the other two cannot restrict without also hiding the channel.
+
+Layer 3 is a convenience, not a security boundary — the event still reaches the process. Do not
+describe it as access control. Prefix commands outside the allowlist are ignored silently; slash
+commands get an ephemeral reply, because an unanswered interaction shows "The application did not
+respond" and reads as a broken bot.
 
 ## Rules you must not break
 

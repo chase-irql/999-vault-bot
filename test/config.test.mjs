@@ -49,8 +49,27 @@ describe("loadConfig", () => {
         assert.deepEqual(config.guildAllowlist, ["1040000000000000001", "1040000000000000002"]);
     });
 
+    test("defaults the channel allowlist to empty, meaning every channel", () => {
+        assert.deepEqual(loadConfig(env()).channelAllowlist, []);
+    });
+
+    test("parses a channel allowlist", () => {
+        const config = loadConfig(env({ CHANNEL_ALLOWLIST: "1040000000000000010,1040000000000000011" }));
+        assert.deepEqual(config.channelAllowlist, ["1040000000000000010", "1040000000000000011"]);
+    });
+
+    test("rejects a malformed channel allowlist entry, naming it a channel", () => {
+        assert.throws(() => loadConfig(env({ CHANNEL_ALLOWLIST: "not-an-id" })), /not a Discord channel ID/);
+    });
+
     test("rejects a malformed allowlist entry", () => {
         assert.throws(() => loadConfig(env({ GUILD_ALLOWLIST: "1040000000000000001,nope" })), /not a Discord guild ID/);
+    });
+
+    test("the two allowlists are independent", () => {
+        const config = loadConfig(env({ GUILD_ALLOWLIST: "1040000000000000001", CHANNEL_ALLOWLIST: "1040000000000000010" }));
+        assert.deepEqual(config.guildAllowlist, ["1040000000000000001"]);
+        assert.deepEqual(config.channelAllowlist, ["1040000000000000010"]);
     });
 
     test("rejects a non-https archive URL", () => {
