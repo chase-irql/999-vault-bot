@@ -15,6 +15,7 @@ import {
     percentOf,
     progressBar,
     queueEmbed,
+    queuedEmbed,
     radioEmbed,
     searchEmbed,
     songEmbed,
@@ -246,6 +247,20 @@ describe("embed content", () => {
     test("a missing thumbnail is omitted rather than set to an empty URL", () => {
         const embed = songEmbed({ ...song, imageUrl: "" });
         assert.equal(embed.thumbnail, undefined);
+    });
+
+    test("the requester mention is placed where Discord will render it", () => {
+        // Regression: the requester was in the footer, and Discord does not
+        // render mentions in footer text — it showed the raw `<@id>` markup.
+        const embed = queuedEmbed({ song, position: 2, requesterId: "1040000000000000003" });
+        assert.ok(embed.description.includes("<@1040000000000000003>"), "mention must be in the description");
+        assert.ok(!embed.footer.text.includes("<@"), "and never in the footer");
+    });
+
+    test("a queued embed with no requester still renders cleanly", () => {
+        const embed = queuedEmbed({ song, position: 0 });
+        assert.ok(!embed.description.includes("Requested by"));
+        assertNoJunk(embed, "queuedEmbed/no requester");
     });
 
     test("search results carry the exact play invocation for each hit", () => {

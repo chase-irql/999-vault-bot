@@ -61,12 +61,21 @@ export function createGuildPlayer({
     let radioMode = false;
     let suspendedQueue = null;
     let suspendedCurrent = null;
+    /** Where the interrupted track had reached, so resuming does not restart it. */
+    let suspendedElapsedSeconds = 0;
     let radioAttempt = 0;
     let radioRetryTimer = null;
     let radioStreamUrl = "";
 
     let idleTimer = null;
     let bufferingSeen = 0;
+
+    /**
+     * Increments on every resource start. A source that fails *after* the player
+     * has already moved on (skip, seek, stop) would otherwise skip a second
+     * track — one the listener never heard fail.
+     */
+    let sourceToken = 0;
 
     // Serializes everything that can start or stop audio. Two `play` commands
     // racing in one guild must produce one join and two queue entries, not two
@@ -114,6 +123,7 @@ export function createGuildPlayer({
         status = "loading";
         bufferingSeen = 0;
         seekOffsetSeconds = seekSeconds;
+        const token = (sourceToken += 1);
 
         source = createSourceFn({
             ffmpegPath,
@@ -122,6 +132,7 @@ export function createGuildPlayer({
             logger: log,
             metadata: { guildId, songId: item.song.id },
             onError: (error) => {
+                if (token !== sourceToken) return; // stale source; we already moved on
                 log.warn("audio source failed", { songId: item.song.id, error });
                 // Skip past a track that will not decode rather than sitting on it.
                 void withLock(() => advance({ skipping: true, failed: item }));
@@ -251,6 +262,7 @@ export function createGuildPlayer({
         stopSource();
         status = "loading";
         seekOffsetSeconds = 0;
+        const token = (sourceToken += 1);
 
         source = createSourceFn({
             ffmpegPath,
@@ -258,6 +270,7 @@ export function createGuildPlayer({
             logger: log,
             metadata: { guildId, radio: true },
             onError: (error) => {
+                if (token !== sourceToken) return; // superseded by a later reconnect
                 log.warn("station source failed", { error });
                 void reconnectRadio("source error");
             },
@@ -579,6 +592,9 @@ export function createGuildPlayer({
                 if (!radioMode) {
                     suspendedQueue = state;
                     suspendedCurrent = current;
+                    // Stamp the position so `radio stop` resumes the track where
+                    // it was interrupted rather than restarting it.
+                    suspendedElapsedSeconds = Math.floor(elapsedSeconds());
                     state = queue.createQueue(state.loop);
                 }
                 radioMode = true;
@@ -600,10 +616,12 @@ export function createGuildPlayer({
                 clearRadioRetry();
                 stopSource();
 
+                const resumeAt = suspendedElapsedSeconds;
+                suspendedElapsedSeconds = 0;
                 const resume = restoreQueue();
                 if (resume) {
-                    startResource(resume);
-                    return { resumed: resume, snapshot: snapshot() };
+                    startResource(resume, resumeAt);
+                    return { resumed: resume, resumedAtSeconds: resumeAt, snapshot: snapshot() };
                 }
                 const { state: nextState, item } = queue.dequeue(state);
                 state = nextState;

@@ -354,15 +354,18 @@ export function nowPlayingEmbed({
 }
 
 export function queuedEmbed({ song, position, requesterId }) {
+    // The requester goes in the description, not the footer: Discord does not
+    // render mentions in footer text, so `<@id>` would show as raw markup.
+    const meta = `\`${formatDuration(song.durationSeconds)}\` · ${categoryLabel(song.category)}${
+        song.era?.name ? ` · ${safe(song.era.name, 60)}` : ""
+    }`;
     return base({
         color: COLORS.success,
         author: position === 0 ? "Playing now" : `Queued at position ${position}`,
         title: safe(song.title, LIMITS.title),
-        description: `\`${formatDuration(song.durationSeconds)}\` · ${categoryLabel(song.category)}${
-            song.era?.name ? ` · ${safe(song.era.name, 60)}` : ""
-        }`,
+        description: requesterId ? `${meta}\nRequested by <@${requesterId}>` : meta,
         thumbnail: song.imageUrl || undefined,
-        footer: requesterId ? `Requested by ${requesterId}` : undefined,
+        footer: "Archive source: JuiceWRLDAPI.com",
     });
 }
 

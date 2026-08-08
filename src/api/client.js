@@ -124,12 +124,16 @@ export class ArchiveApi {
         retries = 4,
         concurrency = 4,
         minIntervalMs = 40,
+        // Backoff is 750ms, 1.5s, 3s… in production. Injectable so tests can
+        // exercise the real retry policy without sleeping through it.
+        backoffBaseMs = 750,
         fetchImpl = globalThis.fetch,
         logger = null,
     } = {}) {
         this.baseUrl = String(baseUrl).replace(/\/$/, "");
         this.timeoutMs = timeoutMs;
         this.retries = retries;
+        this.backoffBaseMs = backoffBaseMs;
         this.fetchImpl = fetchImpl;
         this.logger = logger;
         this.requestCount = 0;
@@ -218,7 +222,7 @@ export class ArchiveApi {
                 const delay =
                     Number.isFinite(serverDelay) && serverDelay > 0
                         ? Math.min(serverDelay, 30_000)
-                        : Math.min(750 * 2 ** (attempt - 1), 10_000);
+                        : Math.min(this.backoffBaseMs * 2 ** (attempt - 1), 10_000);
                 this.logger?.warn("archive request retry", {
                     route,
                     attempt,

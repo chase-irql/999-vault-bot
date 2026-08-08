@@ -34,7 +34,7 @@ async function play(ctx, { next }) {
             next,
         });
         return ctx.editReply({
-            embeds: [queuedEmbed({ song, position: result.position, requesterId: `<@${ctx.userId}>` })],
+            embeds: [queuedEmbed({ song, position: result.position, requesterId: ctx.userId })],
         });
     };
 

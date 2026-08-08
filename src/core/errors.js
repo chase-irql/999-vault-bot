@@ -12,6 +12,16 @@ export class AppError extends Error {
         this.code = code;
         this.userMessage = userMessage || message;
         this.details = details;
+
+        // Details are also hoisted onto the instance, matching the desktop
+        // client's `Object.assign(this, details)`. This is load-bearing, not
+        // cosmetic: the retry predicate in api/client.js tests `error.status`,
+        // and with the fields only under `.details` every 5xx looked
+        // unretryable and the whole retry policy silently did nothing.
+        for (const [key, value] of Object.entries(details)) {
+            if (key in this) continue; // never shadow name/message/code/userMessage
+            this[key] = value;
+        }
     }
 }
 

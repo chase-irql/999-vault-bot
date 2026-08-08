@@ -56,6 +56,35 @@ token.
 
 ---
 
+## Commands
+
+Every command works on **both** surfaces — `jw!name` and `/name` — with identical behaviour, because
+each is defined once in `src/bot/commands/index.js`. Aliases are prefix-only.
+
+| Command | Aliases | Behaviour |
+|---|---|---|
+| `play <query\|id>` | `p` | Resolve, join the invoker's channel, enqueue. Starts if idle, else reports queue position. |
+| `playnext <query\|id>` | `pn` | Same, inserted at position 1. |
+| `pause` / `resume` | `unpause` | Idempotent — pausing a paused player replies "already paused". |
+| `skip` | `s`, `next` | Advance. A `track` loop is cleared for this advance only. |
+| `stop` | | Clear the queue, stop, leave. |
+| `queue [page]` | `q` | Paginated, 10 per page, with total duration. |
+| `nowplaying` | `np` | Current track, live progress bar, elapsed/total, requester. |
+| `remove <n>` | `rm` | Remove queue position n. |
+| `move <from> <to>` | `mv` | Reorder. |
+| `clear` | | Empty the queue, keep the current track playing. |
+| `shuffle` | | Fisher–Yates with an injected RNG. |
+| `loop [off\|track\|queue]` | `repeat` | No argument cycles. |
+| `seek <mm:ss\|seconds>` | | Restarts the source with `-ss`. Refused in radio mode. |
+| `volume [0-200]` | `vol` | Per-guild, via `inlineVolume`. No argument reports. |
+| `join` / `leave` | `disconnect`, `dc` | Explicit connection control. |
+| `radio [stop\|status]` | `fm`, `999` | Relay 999 FM. Suspends the queue; `radio stop` resumes it. |
+| `song <query>` | `info` | Metadata embed, no playback. **No lyrics.** |
+| `search <query>` | `find` | Top 10 scored results with the exact `play` invocation for each. |
+| `stats` | | Archive totals, uptime, guilds, active players. |
+| `help [command]` | `h`, `commands` | Generated from the registry — never a maintained string. |
+| `ping` | | Gateway latency, archive `/health/` latency, RSS. |
+
 ## Module map
 
 ```

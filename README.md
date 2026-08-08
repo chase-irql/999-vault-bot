@@ -63,6 +63,45 @@ On Windows PowerShell, use `Copy-Item .env.example .env` for the copy step.
 5. **Restrict it.** This bot is built for private servers. Set `GUILD_ALLOWLIST` to your guild IDs —
    the bot leaves any guild not on the list immediately after joining.
 
+## Commands
+
+Every command works as `jw!name` **and** `/name`, with identical behaviour — each is defined once and
+both surfaces route into it. The prefix is case-insensitive, so `JW!play` works. Aliases are
+prefix-only.
+
+| Command | Aliases | What it does |
+|---|---|---|
+| `jw!play <query\|id>` | `p` | Resolve a track, join your channel, play or queue it. |
+| `jw!playnext <query\|id>` | `pn` | Same, but next in line. |
+| `jw!pause` / `jw!resume` | `unpause` | Pause and resume. |
+| `jw!skip` | `s`, `next` | Next track. |
+| `jw!stop` | | Clear the queue and leave. |
+| `jw!queue [page]` | `q` | Show the queue, ten per page. |
+| `jw!nowplaying` | `np` | Current track with a live progress bar. |
+| `jw!remove <n>` / `jw!move <from> <to>` | `rm`, `mv` | Edit the queue. |
+| `jw!clear` | | Empty the queue, keep playing. |
+| `jw!shuffle` | | Shuffle the queued tracks. |
+| `jw!loop [off\|track\|queue]` | `repeat` | Loop mode; no argument cycles. |
+| `jw!seek <mm:ss>` | | Jump within the current track. |
+| `jw!volume [0-200]` | `vol` | Set or report volume. |
+| `jw!join` / `jw!leave` | `dc` | Connect or disconnect. |
+| `jw!radio [stop\|status]` | `fm`, `999` | Relay the live 999 FM station. |
+| `jw!song <query>` | `info` | Archive metadata, no playback. |
+| `jw!search <query>` | `find` | Top matches, each with its exact `play` command. |
+| `jw!stats` | | Archive totals and bot status. |
+| `jw!help [command]` | `h` | Everything above, generated from the registry. |
+| `jw!ping` | | Latency and memory. |
+
+**Ambiguous titles.** The archive holds 2,500+ entries with alternate titles, working titles and
+leaked variants. When several genuinely match, `play` shows a numbered list — reply with a number
+within 60 seconds, or run `jw!play <id>` with the id shown. Only *your* number resolves *your*
+prompt.
+
+**Radio suspends, it does not clear.** `jw!radio` puts the queue aside and streams the station;
+`jw!radio stop` resumes the track you were on, at the position you left it. While the station plays,
+`seek`, `loop`, `skip` and queue edits refuse with an explanation — it is a live stream. `pause`,
+`volume` and `stop` still work.
+
 ## Configuration
 
 Every setting is an environment variable, read from `.env` via Node's built-in
@@ -116,6 +155,35 @@ These are **not** missing features. They are decisions, listed so nobody adds th
 - **No radio voting**, and no writes to `POST /plays/` — neither has a verified write contract.
 - **`discord_listeners`** from `/radio/live/` is read-only here and otherwise unused; there is no
   verified route to register a listener, so the bot does not try.
+
+## Status — what is and is not verified
+
+Being direct about this, because a music bot that has never been heard is not a finished music bot.
+
+**Verified.** 408 automated tests pass (`npm run verify`) — song resolution scored against 145 real
+records captured from the live archive, the queue reducer, the player state machine driven through
+every transition with fake voice primitives, guild isolation, disambiguation across two users,
+embed limits and escaping, and the archive failure paths. `npm run probe` confirms every endpoint
+this bot uses still matches the documented contract. Archive search round-trip measured at
+p50 176 ms / p95 292 ms — see [docs/performance.md](docs/performance.md).
+
+**Not verified.** This build had **no Discord bot token**, so nothing has been run against a live
+gateway. Specifically not done: `npm run verify:voice` (so no audio has actually been heard), the
+two-guild live isolation matrix, embed screenshots in light and dark themes, the 60-minute mixed
+session, and every command-to-first-audio timing number. `evidence/` is empty, which is the honest
+state rather than an oversight.
+
+The scripts for all of it are written and assert rather than merely record. With a token and a test
+channel in `.env`:
+
+```bash
+npm run verify:voice
+```
+
+Full accounting in [docs/known-issues.md](docs/known-issues.md) and
+[docs/reviews/](docs/reviews/). Four defects were found and fixed during review — including one
+critical bug where the archive retry policy was unreachable code, and one where a late decoder
+failure silently ate a track. Both now have regression tests.
 
 ## Documentation
 

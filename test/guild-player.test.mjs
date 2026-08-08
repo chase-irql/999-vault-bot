@@ -194,6 +194,40 @@ describe("advancing", () => {
         const { player } = build();
         await assert.rejects(() => player.skip(), UserError);
     });
+
+    test("a stale source failing after a skip does not skip a second track", async () => {
+        // Regression: FFmpeg for track 1 reports its failure *after* the user
+        // already skipped to track 2. Without a staleness guard that error
+        // advanced the queue again, silently eating a track nobody heard fail.
+        const { player, channel, createSourceFn } = build();
+        await enqueue(player, channel, 1);
+        await enqueue(player, channel, 2);
+        await enqueue(player, channel, 3);
+
+        const firstSource = createSourceFn.created[0];
+        await player.skip();
+        assert.equal(player.snapshot().current.song.id, 2);
+
+        firstSource.options.onError(new Error("late ffmpeg failure"));
+        await new Promise((resolve) => setImmediate(resolve));
+
+        assert.equal(player.snapshot().current.song.id, 2, "track 2 must still be playing");
+        assert.deepEqual(player.snapshot().queue.map((entry) => entry.song.id), [3]);
+    });
+
+    test("a stale source failing after a seek does not skip the track", async () => {
+        const { player, channel, createSourceFn } = build();
+        await enqueue(player, channel, 1);
+        await enqueue(player, channel, 2);
+
+        const before = createSourceFn.last();
+        await player.seek(30);
+
+        before.options.onError(new Error("killed by the seek"));
+        await new Promise((resolve) => setImmediate(resolve));
+
+        assert.equal(player.snapshot().current.song.id, 1, "seeking must not lose the track");
+    });
 });
 
 describe("pause, resume, volume", () => {
@@ -327,6 +361,18 @@ describe("radio mode", () => {
         assert.equal(resumed.song.id, 1, "back to exactly where it was");
         assert.equal(player.snapshot().radioMode, false);
         assert.equal(player.snapshot().queueLength, 1);
+    });
+
+    test("resuming picks the track up where it was interrupted, not from zero", async () => {
+        const { player, channel, createSourceFn } = build();
+        await enqueue(player, channel, 1);
+        createSourceFn.last().advance(45_000); // 45 seconds in
+
+        await player.startRadio({ channel, streamUrl });
+        const { resumedAtSeconds } = await player.stopRadio();
+
+        assert.equal(resumedAtSeconds, 45);
+        assert.equal(createSourceFn.last().options.seekSeconds, 45, "the resumed source seeks to the mark");
     });
 
     test("streams the URL it was given", async () => {

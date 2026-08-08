@@ -112,6 +112,48 @@ taken.
 
 ## Closed
 
+### KI-8 — The archive retry policy never ran (Critical, fixed)
+
+`ApiError` stored `status` under `error.details`, but the retry predicate in `api/client.js` tested
+`error.status`. Every 5xx, 429 and timeout therefore failed on the **first** attempt — the four-attempt
+budget, the exponential backoff and the `Retry-After` handling were all unreachable.
+
+**Reproduce (before the fix):** point `ArchiveApi` at a handler returning `503` and count requests —
+1, not 4.
+
+**Fixed** by hoisting error details onto the instance, matching the desktop client's
+`Object.assign(this, details)` that the retry semantics were ported from. Covered by four
+request-counting tests in `test/resilience.test.mjs`. Full write-up in
+[reviews/milestone-6.md](reviews/milestone-6.md).
+
+### KI-9 — A late FFmpeg failure skipped a second track (Critical, fixed)
+
+A source that reported failure *after* the user had skipped or seeked past it advanced the queue
+again, silently consuming a track that never played.
+
+**Reproduce (before the fix):** queue three tracks, skip to the second, then fire the first source's
+error callback — the player jumps to the third.
+
+**Fixed** with a monotonic source token; a stale source's error is ignored. See D-6 in
+[reviews/milestone-3-5.md](reviews/milestone-3-5.md).
+
+### KI-10 — The requester mention rendered as raw markup (Major, fixed)
+
+`queuedEmbed` put the requester in the embed footer, where Discord does not render mentions, so every
+`play` reply showed a literal `<@…>`.
+
+**Fixed** by moving it to the description. Worth noting how it was found: by reading the code against
+Discord's rendering rules, because the embed critic — the pass that would have caught it in one
+glance at a screenshot — could not run. Other defects of this class may remain.
+
+### KI-11 — `radio stop` restarted the interrupted track (Minor, fixed)
+
+Resuming the suspended queue rebuilt the track's source with no seek offset, so a listener three
+minutes into a song heard it from the top.
+
+**Fixed** by stamping the elapsed position when the queue is suspended and using it as the resume
+offset.
+
 ### KI-0 — `node --test test/` fails on Node 26 (Fixed)
 
 Passing a bare directory to `--test` was resolved as a module specifier and failed with
