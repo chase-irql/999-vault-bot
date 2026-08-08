@@ -7,7 +7,6 @@ export default {
     category: "Utility",
     description: "List every command, or explain one.",
     usage: "{prefix}help [command]",
-    options: [{ name: "command", description: "Command to explain", type: "string", required: false }],
     guildOnly: false,
     async execute(ctx) {
         const { registry: commands, config } = ctx.deps;

@@ -6,7 +6,6 @@ export default {
     category: "Utility",
     description: "Archive totals plus bot uptime, guilds, and active players.",
     usage: "{prefix}stats",
-    options: [],
     guildOnly: false,
     async execute(ctx) {
         const { archive, clock, startedAt, guildCount, players } = ctx.deps;

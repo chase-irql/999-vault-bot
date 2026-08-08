@@ -7,7 +7,6 @@ export default {
     category: "Archive",
     description: "Archive metadata for one track, with no playback.",
     usage: "{prefix}song <query>",
-    options: [{ name: "query", description: "Title, alternate title, or song id", type: "string", required: true }],
     guildOnly: false,
     // Stated in help so the omission reads as a decision rather than a gap.
     notes: "Metadata only. This bot never posts lyrics.",

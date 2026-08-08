@@ -70,7 +70,6 @@ export default {
     category: "Playback",
     description: "Resolve a track, join your voice channel, and play or queue it.",
     usage: "{prefix}play <query|id>",
-    options: [{ name: "query", description: "Title, alternate title, song id, or archive path", type: "string", required: true }],
     guildOnly: true,
     notes:
         "When several archive entries match, you get a numbered list — reply with a number within 60 seconds, " +
@@ -84,7 +83,6 @@ export const playNext = {
     category: "Playback",
     description: "Same as play, but jumps the queue to position 1.",
     usage: "{prefix}playnext <query|id>",
-    options: [{ name: "query", description: "Title, alternate title, song id, or archive path", type: "string", required: true }],
     guildOnly: true,
     execute: (ctx) => play(ctx, { next: true }),
 };

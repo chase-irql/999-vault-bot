@@ -36,8 +36,13 @@ describe("loadConfig", () => {
         assert.throws(() => loadConfig({ DISCORD_CLIENT_ID: VALID.DISCORD_CLIENT_ID }), /DISCORD_TOKEN is required/);
     });
 
-    test("requires a well-formed client id", () => {
-        assert.throws(() => loadConfig(env({ DISCORD_CLIENT_ID: "" })), /DISCORD_CLIENT_ID is required/);
+    test("the client id is optional, because nothing at runtime reads it", () => {
+        // It is only needed to build the invite URL. See ADR 0006.
+        assert.equal(loadConfig({ DISCORD_TOKEN: VALID.DISCORD_TOKEN }).clientId, "");
+        assert.equal(loadConfig(env({ DISCORD_CLIENT_ID: "" })).clientId, "");
+    });
+
+    test("but a malformed client id is still rejected rather than ignored", () => {
         assert.throws(() => loadConfig(env({ DISCORD_CLIENT_ID: "abc" })), /must be a Discord ID/);
         assert.throws(() => loadConfig(env({ DISCORD_CLIENT_ID: "123" })), /must be a Discord ID/);
     });

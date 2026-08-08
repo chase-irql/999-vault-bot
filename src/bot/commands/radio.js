@@ -15,15 +15,6 @@ export default {
     category: "Radio",
     description: "Relay the live 999 FM station into voice.",
     usage: "{prefix}radio [stop|status]",
-    options: [
-        {
-            name: "action",
-            description: "Leave empty to start, or use stop / status",
-            type: "string",
-            required: false,
-            choices: ["stop", "status"],
-        },
-    ],
     guildOnly: true,
     notes:
         "Starting the station suspends your queue instead of clearing it; `radio stop` resumes it where it " +

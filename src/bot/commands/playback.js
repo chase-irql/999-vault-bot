@@ -21,7 +21,6 @@ export const pause = {
     category: "Playback",
     description: "Pause playback.",
     usage: "{prefix}pause",
-    options: [],
     guildOnly: true,
     async execute(ctx) {
         const result = requireActivePlayer(ctx).pause();
@@ -42,7 +41,6 @@ export const resume = {
     category: "Playback",
     description: "Resume playback.",
     usage: "{prefix}resume",
-    options: [],
     guildOnly: true,
     async execute(ctx) {
         const result = requireActivePlayer(ctx).resume();
@@ -62,7 +60,6 @@ export const skip = {
     category: "Playback",
     description: "Skip to the next queued track.",
     usage: "{prefix}skip",
-    options: [],
     guildOnly: true,
     notes: "A `track` loop is cleared for this advance only, so skip does not replay the same song.",
     async execute(ctx) {
@@ -84,7 +81,6 @@ export const stop = {
     category: "Playback",
     description: "Clear the queue, stop, and leave the channel.",
     usage: "{prefix}stop",
-    options: [],
     guildOnly: true,
     async execute(ctx) {
         const player = ctx.deps.players.get(ctx.guildId);
@@ -102,7 +98,6 @@ export const nowplaying = {
     category: "Playback",
     description: "Show the current track with a live progress bar.",
     usage: "{prefix}nowplaying",
-    options: [],
     guildOnly: true,
     async execute(ctx) {
         const player = requireActivePlayer(ctx);
@@ -138,7 +133,6 @@ export const queueCommand = {
     category: "Playback",
     description: "Show the queue, ten per page.",
     usage: "{prefix}queue [page]",
-    options: [{ name: "page", description: "Page number", type: "integer", required: false, min: 1 }],
     guildOnly: true,
     async execute(ctx) {
         const player = requireActivePlayer(ctx);
@@ -173,7 +167,6 @@ export const remove = {
     category: "Playback",
     description: "Remove one track from the queue by position.",
     usage: "{prefix}remove <position>",
-    options: [{ name: "position", description: "Queue position", type: "integer", required: true, min: 1 }],
     guildOnly: true,
     async execute(ctx) {
         const position = requirePosition(ctx.args[0], "Position", `${ctx.deps.config.prefix}remove 3`);
@@ -190,10 +183,6 @@ export const move = {
     category: "Playback",
     description: "Move a queued track to another position.",
     usage: "{prefix}move <from> <to>",
-    options: [
-        { name: "from", description: "Current position", type: "integer", required: true, min: 1 },
-        { name: "to", description: "New position", type: "integer", required: true, min: 1 },
-    ],
     guildOnly: true,
     async execute(ctx) {
         const usage = `${ctx.deps.config.prefix}move 3 1`;
@@ -212,7 +201,6 @@ export const clear = {
     category: "Playback",
     description: "Empty the queue but keep the current track playing.",
     usage: "{prefix}clear",
-    options: [],
     guildOnly: true,
     async execute(ctx) {
         const { removed } = requireActivePlayer(ctx).clearQueue();
@@ -235,7 +223,6 @@ export const shuffle = {
     category: "Playback",
     description: "Shuffle the queued tracks.",
     usage: "{prefix}shuffle",
-    options: [],
     guildOnly: true,
     async execute(ctx) {
         const state = requireActivePlayer(ctx).shuffleQueue();
@@ -251,15 +238,6 @@ export const loop = {
     category: "Playback",
     description: "Set or cycle the loop mode.",
     usage: "{prefix}loop [off|track|queue]",
-    options: [
-        {
-            name: "mode",
-            description: "Loop mode",
-            type: "string",
-            required: false,
-            choices: ["off", "track", "queue"],
-        },
-    ],
     guildOnly: true,
     async execute(ctx) {
         const player = requireActivePlayer(ctx);
@@ -282,7 +260,6 @@ export const seek = {
     category: "Playback",
     description: "Jump to a position in the current track.",
     usage: "{prefix}seek <mm:ss|seconds>",
-    options: [{ name: "position", description: "mm:ss, h:mm:ss, or seconds", type: "string", required: true }],
     guildOnly: true,
     notes: "Not available in radio mode — a live stream has no position to seek to.",
     async execute(ctx) {
@@ -308,7 +285,6 @@ export const volume = {
     category: "Playback",
     description: "Set or report playback volume, 0 to 200.",
     usage: "{prefix}volume [0-200]",
-    options: [{ name: "level", description: "Volume percentage", type: "integer", required: false, min: 0, max: 200 }],
     guildOnly: true,
     async execute(ctx) {
         const player = requireActivePlayer(ctx);
@@ -330,7 +306,6 @@ export const join = {
     category: "Playback",
     description: "Join your voice channel without playing anything.",
     usage: "{prefix}join",
-    options: [],
     guildOnly: true,
     async execute(ctx) {
         const channel = requireVoiceChannel(ctx);
@@ -345,7 +320,6 @@ export const leave = {
     category: "Playback",
     description: "Leave the voice channel and clear the queue.",
     usage: "{prefix}leave",
-    options: [],
     guildOnly: true,
     async execute(ctx) {
         const left = ctx.deps.players.destroy(ctx.guildId, "leave command");

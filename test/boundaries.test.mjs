@@ -101,7 +101,7 @@ describe("import boundaries", () => {
     });
 
     test("pure modules stay pure", () => {
-        const pureModules = ["core/queue.js", "api/search.js", "api/normalize.js", "bot/embeds.js", "bot/router.js", "bot/slash.js"];
+        const pureModules = ["core/queue.js", "api/search.js", "api/normalize.js", "bot/embeds.js", "bot/router.js"];
         const bannedImports = [
             "discord.js",
             "@discordjs/voice",

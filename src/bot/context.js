@@ -2,15 +2,16 @@ import { userMessageFor } from "../core/errors.js";
 import { errorEmbed } from "./embeds.js";
 
 /**
- * CommandContext — the boundary that lets one command implementation serve both
- * the prefix surface and the slash surface.
+ * CommandContext — the boundary between commands and Discord.
  *
- * A command never sees a Message or an Interaction. It sees this object, whose
- * shape is identical whichever surface produced it, so a test can build one by
- * hand and assert on what the command tried to send.
+ * A command never sees a Message. It sees this object, so a test can build one
+ * by hand and assert on what the command tried to send, with no gateway.
+ *
+ * The prefix surface is the only surface; see docs/decisions/0006-prefix-only.md
+ * for why the slash surface was removed and what that trades away.
  *
  * @typedef {object} CommandContext
- * @property {"prefix"|"slash"} source
+ * @property {"prefix"} source
  * @property {string} guildId
  * @property {string} channelId
  * @property {string} userId
@@ -36,27 +37,7 @@ export function errorPayload(error) {
     };
 }
 
-/**
- * Slash options are declared per-command in a discord.js-free spec. Reading them
- * back in declaration order and re-joining them reproduces exactly the `rest`
- * string a prefix invocation would have produced, so downstream parsing is
- * shared rather than duplicated per surface.
- */
-export function restFromOptions(interaction, options) {
-    const parts = [];
-    for (const option of options) {
-        const value = interaction.options.get(option.name)?.value;
-        if (value === undefined || value === null || value === "") continue;
-        parts.push(String(value));
-    }
-    return parts.join(" ").trim();
-}
-
-export function tokenizeRest(rest, tokenize) {
-    return rest ? tokenize(rest) : [];
-}
-
-/** Builds a context from a `messageCreate` event. */
+/** Builds a context from a `messageCreate` event — the only surface. */
 export function contextFromMessage({ message, command, parsed, deps }) {
     let replied = null;
     return {
@@ -82,39 +63,6 @@ export function contextFromMessage({ message, command, parsed, deps }) {
         async editReply(payload) {
             if (!replied) return this.reply(payload);
             return replied.edit(payloadOf(payload));
-        },
-        deps,
-    };
-}
-
-/** Builds a context from a `ChatInputCommandInteraction`. */
-export function contextFromInteraction({ interaction, command, args, rest, deps }) {
-    return {
-        source: "slash",
-        commandName: command.name,
-        guildId: interaction.guildId,
-        channelId: interaction.channelId,
-        userId: interaction.user.id,
-        userTag: interaction.user.tag,
-        memberVoiceChannelId: interaction.member?.voice?.channelId ?? null,
-        getMemberVoiceChannel: () => interaction.member?.voice?.channel ?? null,
-        args,
-        rest,
-        get deferred() {
-            return interaction.deferred;
-        },
-        async defer() {
-            if (!interaction.deferred && !interaction.replied) await interaction.deferReply();
-        },
-        async reply(payload) {
-            if (interaction.deferred || interaction.replied) {
-                return interaction.editReply(payloadOf(payload));
-            }
-            return interaction.reply(payloadOf(payload));
-        },
-        async editReply(payload) {
-            if (!interaction.deferred && !interaction.replied) return this.reply(payload);
-            return interaction.editReply(payloadOf(payload));
         },
         deps,
     };

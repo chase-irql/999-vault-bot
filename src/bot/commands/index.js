@@ -25,22 +25,21 @@ import stats from "./stats.js";
 
 /**
  * The command registry. A command is defined exactly once here and reached by
- * both the prefix router and the slash-command handler, which is what keeps the
- * two surfaces from drifting.
+ * the prefix router, which is the only surface — see
+ * docs/decisions/0006-prefix-only.md.
  *
  * A registry entry:
  *   name         primary invocation, lowercase
- *   aliases      extra prefix names (aliases are not registered as slash commands)
+ *   aliases      extra prefix names
  *   category     grouping in the generated help embed
- *   description  one line, shown in help and as the slash description
+ *   description  one line, shown in help
  *   usage        `{prefix}` is substituted at render time
- *   options      discord.js-free slash option specs, in `rest` order
  *   guildOnly    reject in DMs
  *   notes        optional extra paragraph for `help <command>`
  *   execute(ctx) receives a CommandContext, returns/throws
  *
- * Help and slash registration are both generated from this array. There is no
- * second list to keep in sync.
+ * Arguments are parsed from `ctx.args` / `ctx.rest` by each command. Help is
+ * generated from this array, so there is no second list to keep in sync.
  */
 
 const COMMANDS = [

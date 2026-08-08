@@ -2,7 +2,8 @@
 
 999 Vault Bot is a self-hosted Discord music bot that streams songs from the JuiceWRLDAPI archive
 into a voice channel and relays the live 999 FM station. It is driven by `jw!` prefix commands with
-a slash-command equivalent for every command. It is a Node.js ES-module service with no build step:
+no slash-command surface — see `docs/decisions/0006-prefix-only.md`. It is a Node.js ES-module
+service with no build step:
 `src/index.js` runs directly. It is stateless across restarts apart from its configuration.
 
 **999 Vault is an independent project. It is not affiliated with, endorsed by, or operated by the
@@ -36,7 +37,7 @@ is committed with every key.
 | Variable | Required | Purpose / format |
 |---|---|---|
 | `DISCORD_TOKEN` | **yes** | Bot token. Never logged, never committed, never echoed. |
-| `DISCORD_CLIENT_ID` | **yes** | Application ID, 17–20 digits. Used for slash registration. |
+| `DISCORD_CLIENT_ID` | no | Application ID, 17–20 digits. Nothing at runtime reads it; it is only needed to build the invite URL. Malformed values are still rejected. |
 | `COMMAND_PREFIX` | no | Default `jw!`. No whitespace, ≤ 8 chars. Matched case-insensitively. |
 | `API_BASE_URL` | no | Default `https://juicewrldapi.com/juicewrld`. Must be https. |
 | `GUILD_ALLOWLIST` | no | Comma-separated guild IDs. Non-empty ⇒ leave any guild not listed. |
@@ -59,8 +60,9 @@ token.
 
 ## Commands
 
-Every command works on **both** surfaces — `jw!name` and `/name` — with identical behaviour, because
-each is defined once in `src/bot/commands/index.js`. Aliases are prefix-only.
+`jw!name` is the **only** surface. There are no slash commands — ADR 0006 removed them, and the
+reasoning there is also the reason not to reintroduce them casually. Each command is defined once in
+`src/bot/commands/index.js`.
 
 | Command | Aliases | Behaviour |
 |---|---|---|
@@ -109,7 +111,6 @@ src/
   bot/client.js         discord.js Client construction, intents, event wiring, lifecycle
   bot/router.js         pure: (content, prefix) -> { name, args, rest } | null
   bot/context.js        CommandContext, built identically from a message or an interaction
-  bot/slash.js          pure: registry -> Discord application-command JSON
   bot/commands/index.js command registry: name, aliases, description, usage, options, execute(ctx)
   bot/commands/*.js     one file per command
   bot/embeds.js         pure embed builders; no command builds an embed inline
@@ -164,19 +165,20 @@ One direction. Nothing flows backward.
 
 ### Where commands are accepted
 
-By default every channel the bot can see. Three layers, in order of strength:
+By default every channel the bot can see. Two layers:
 
 1. **Discord channel permission overwrites** — deny the bot `View Channel` and it never receives the
    event. Strongest, and the one Discord's model expects.
-2. **Server Settings → Integrations → Command Permissions** — native per-command channel and role
-   restrictions for the **slash** surface, enforced before the interaction is dispatched.
-3. **`CHANNEL_ALLOWLIST`** — in-process gate in `bot/client.js`, covering the **prefix** surface,
-   which the other two cannot restrict without also hiding the channel.
+2. **`CHANNEL_ALLOWLIST`** — in-process gate in `bot/client.js`, for channels the bot must still be
+   able to read but should not take commands in. Outside the allowlist, commands are ignored
+   silently: replying "wrong channel" in the wrong channel is the noise the allowlist exists to
+   prevent.
 
-Layer 3 is a convenience, not a security boundary — the event still reaches the process. Do not
-describe it as access control. Prefix commands outside the allowlist are ignored silently; slash
-commands get an ephemeral reply, because an unanswered interaction shows "The application did not
-respond" and reads as a broken bot.
+Layer 2 is a convenience, not a security boundary — the event still reaches the process. Do not
+describe it as access control.
+
+Note that **Server Settings → Integrations → Command Permissions does not apply here**. That feature
+governs application (slash) commands only, and this bot has none. Layer 1 is the only enforcement.
 
 ## Rules you must not break
 
@@ -186,8 +188,8 @@ wrong — fix the architecture, not the test.
 1. `bot/commands/*` may not import `@discordjs/voice`, `node:http`/`node:https`/`undici`,
    `audio/source.js`, `api/client.js`, or `discord.js`.
 2. `api/*` may not import anything from `bot/` or `audio/`.
-3. `core/queue.js`, `api/search.js`, `api/normalize.js`, `bot/embeds.js`, `bot/router.js`, and
-   `bot/slash.js` must stay pure: no `discord.js`, no I/O, no timers, no `Math.random`. Randomness
+3. `core/queue.js`, `api/search.js`, `api/normalize.js`, `bot/embeds.js`, and `bot/router.js` must
+   stay pure: no `discord.js`, no I/O, no timers, no `Math.random`. Randomness
    is injected (`shuffle` takes an RNG) so it is testable.
 4. Only `core/logger.js` may call `console.*`.
 5. Only `src/index.js` may read `process.env`. Everything else receives config as an argument.
@@ -260,14 +262,14 @@ This is handled in `audio/radio.js`; do not bypass it.
 ## Adding a new command
 
 1. Create `src/bot/commands/<name>.js` exporting a default object:
-   `{ name, aliases, category, description, usage, options, guildOnly, execute(ctx) }`.
+   `{ name, aliases, category, description, usage, guildOnly, notes?, execute(ctx) }`.
    - `usage` templates the prefix as `{prefix}`.
-   - `options` are discord.js-free slash option specs in `rest` order:
-     `{ name, description, type: "string"|"integer"|"boolean", required, min, max, choices }`.
-     Reading them back in order reproduces exactly the `rest` string a prefix invocation produces,
-     so both surfaces share one parsing path.
-2. Add it to the `COMMANDS` array in `src/bot/commands/index.js`. Help and slash registration are
-   generated from that array — there is no second list to update.
+   - Arguments come from `ctx.args` (quote-aware tokens) and `ctx.rest` (the raw remainder).
+     Validate them in the command — `helpers.js` has `requirePosition` and `parseTimestamp`.
+   - Do **not** add an `options` field. It existed for slash registration, which no longer exists,
+     and a test asserts no command declares one.
+2. Add it to the `COMMANDS` array in `src/bot/commands/index.js`. Help is generated from that array —
+   there is no second list to update.
 3. Build every embed in `src/bot/embeds.js`. Never construct one inline in a command.
 4. Tests, in `test/commands-*.test.mjs`:
    - the happy path, asserting on the reply payload;
@@ -281,11 +283,14 @@ This is handled in `audio/radio.js`; do not bypass it.
 
 ## Known sharp edges
 
-- **Message Content is a privileged intent.** It must be enabled manually at Developer Portal → your
-  application → Bot → Privileged Gateway Intents. If it is off, the gateway **refuses the connection
-  outright** rather than silently delivering empty messages — so `bot/client.js` catches that
-  rejection at login, logs one clear warning naming the toggle, and reconnects without the intent in
-  slash-only mode. Unverified bots are capped at 100 guilds.
+- **Message Content is a privileged intent, and it is load-bearing.** It must be enabled manually at
+  Developer Portal → your application → Bot → Privileged Gateway Intents. If it is off, the gateway
+  **refuses the connection outright** rather than silently delivering empty messages — so
+  `bot/client.js` catches that rejection at login, logs one clear warning naming the toggle, and
+  reconnects without it rather than crash-looping. Because the prefix surface is the *only* surface
+  (ADR 0006), the bot will then be connected but have no commands at all. Unverified bots are capped
+  at 100 guilds; past that, Message Content needs Discord's approval and can be declined, which is
+  the point at which the slash surface should come back.
 - **`length` is a `"m:ss"` string, not seconds** — and it is empty on roughly a third of records.
   Parse defensively. `durationSeconds: null` renders as `--:--`, never `NaN:NaN`.
 - **Roughly a third of records have no `path`** and cannot be played. They are dropped before

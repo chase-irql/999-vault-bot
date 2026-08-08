@@ -1,13 +1,16 @@
-import { ApplicationFlagsBitField, Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
+import { ApplicationFlagsBitField, Client, Events, GatewayIntentBits } from "discord.js";
 import { isUserFacing } from "../core/errors.js";
-import { contextFromInteraction, contextFromMessage, errorPayload, restFromOptions } from "./context.js";
-import { parseCommand, tokenize } from "./router.js";
-import { buildSlashCommands } from "./slash.js";
+import { contextFromMessage, errorPayload } from "./context.js";
+import { parseCommand } from "./router.js";
 
 /**
- * discord.js wiring: intents, event routing, slash registration, allowlist
- * gating, lifecycle. Commands are reached only through CommandContext, so this
- * module is the single place that knows the gateway exists.
+ * discord.js wiring: intents, event routing, allowlist gating, lifecycle.
+ * Commands are reached only through CommandContext, so this module is the single
+ * place that knows the gateway exists.
+ *
+ * There is no slash surface — see docs/decisions/0006-prefix-only.md. That makes
+ * Message Content load-bearing: without it there is no command surface at all,
+ * which is why the login fallback below logs so loudly.
  *
  * Nothing here needs GuildMembers or GuildPresences — the two privileged intents
  * we do not request. `GuildVoiceStates` already carries the member voice state
@@ -48,17 +51,6 @@ export function createBotClient({ config, logger, deps }) {
         return true;
     }
 
-    async function registerSlashCommands() {
-        const payload = buildSlashCommands(commands.list());
-        try {
-            await client.application.commands.set(payload);
-            logger.info("slash commands registered globally", { count: payload.length });
-        } catch (error) {
-            // Slash registration failing is not fatal — the prefix surface still works.
-            logger.error("slash command registration failed", { error });
-        }
-    }
-
     /**
      * `GatewayMessageContent` is the verified flag; `Limited` is what an
      * unverified bot under 100 guilds gets. Either means messages carry content.
@@ -72,9 +64,9 @@ export function createBotClient({ config, logger, deps }) {
             bits.has(ApplicationFlagsBitField.Flags.GatewayMessageContentLimited);
         if (!granted) {
             logger.warn(
-                "Message Content intent is not granted; prefix commands will not fire. " +
-                    "Enable it at Developer Portal -> your application -> Bot -> Privileged Gateway Intents -> " +
-                    "Message Content Intent. Slash commands continue to work."
+                "Message Content intent is not granted, so NO commands will work — prefix is the only " +
+                    "surface. Enable it at Developer Portal -> your application -> Bot -> Privileged " +
+                    "Gateway Intents -> Message Content Intent, then restart."
             );
             messageContentEnabled = false;
         }
@@ -106,9 +98,9 @@ export function createBotClient({ config, logger, deps }) {
      * and matches how Discord itself behaves.
      *
      * Note this is a convenience, not a security boundary: the real enforcement
-     * is Discord's own channel permission overwrites and, for the slash surface,
-     * Server Settings -> Integrations -> Command Permissions. Both of those stop
-     * the event reaching the process at all.
+     * is Discord's own channel permission overwrites, which stop the event
+     * reaching the process at all. (Integrations -> Command Permissions does not
+     * apply — it governs slash commands, and there are none.)
      */
     function channelAllowed(channelId) {
         if (config.channelAllowlist.length === 0) return true;
@@ -136,44 +128,6 @@ export function createBotClient({ config, logger, deps }) {
         })();
     }
 
-    function onInteractionCreate(interaction) {
-        void (async () => {
-            if (!interaction.isChatInputCommand()) return;
-            const command = commands.find(interaction.commandName);
-            if (!command) return;
-            if (command.guildOnly && !interaction.guildId) {
-                await interaction.reply({
-                    content: "That command only works inside a server.",
-                    flags: MessageFlags.Ephemeral,
-                });
-                return;
-            }
-
-            // Unlike the prefix surface this must answer. An unanswered
-            // interaction shows "The application did not respond", which reads
-            // as a broken bot rather than a deliberate restriction. Ephemeral,
-            // so declining does not clutter the channel.
-            if (!channelAllowed(interaction.channelId)) {
-                const where = config.channelAllowlist.map((id) => `<#${id}>`).join(", ");
-                await interaction.reply({
-                    content: `Commands are restricted to ${where}.`,
-                    flags: MessageFlags.Ephemeral,
-                });
-                return;
-            }
-
-            const rest = restFromOptions(interaction, command.options);
-            const ctx = contextFromInteraction({
-                interaction,
-                command,
-                args: tokenize(rest),
-                rest,
-                deps,
-            });
-            await dispatch(ctx, command);
-        })();
-    }
-
     async function start() {
         // Requesting MessageContent when the portal toggle is off makes the
         // gateway refuse the connection outright, so the fallback has to happen
@@ -185,10 +139,12 @@ export function createBotClient({ config, logger, deps }) {
                 await client.login(config.token);
                 messageContentEnabled = withMessageContent;
                 if (!withMessageContent) {
+                    // Connected but inert: the prefix surface is the only one,
+                    // so without this intent there are no commands at all.
                     logger.warn(
-                        "Started in slash-only mode: the Message Content intent is not enabled for this " +
-                            "application. Enable it at Developer Portal -> Bot -> Privileged Gateway Intents -> " +
-                            "Message Content Intent to use the prefix surface."
+                        "Connected WITHOUT the Message Content intent, so no commands will work — " +
+                            "prefix is the only surface. Enable it at Developer Portal -> Bot -> Privileged " +
+                            "Gateway Intents -> Message Content Intent, then restart."
                     );
                 }
                 return client;
@@ -218,7 +174,6 @@ export function createBotClient({ config, logger, deps }) {
                 for (const guild of ready.guilds.cache.values()) {
                     await enforceAllowlist(guild, "startup sweep");
                 }
-                await registerSlashCommands();
             })();
         });
 
@@ -239,7 +194,6 @@ export function createBotClient({ config, logger, deps }) {
         });
 
         client.on(Events.MessageCreate, onMessageCreate);
-        client.on(Events.InteractionCreate, onInteractionCreate);
 
         client.on(Events.Error, (error) => logger.error("gateway error", { error }));
         client.on(Events.Warn, (message) => logger.warn("gateway warning", { message }));

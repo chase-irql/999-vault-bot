@@ -1,8 +1,7 @@
 # 999 Vault Bot
 
 A self-hosted Discord music bot that streams any song in the JuiceWRLDAPI archive into a voice
-channel and relays the live 999 FM station. Driven by `jw!` prefix commands, with a slash-command
-equivalent for every command.
+channel and relays the live 999 FM station. Driven entirely by `jw!` prefix commands.
 
 > **999 Vault is an independent project.** It is not affiliated with, endorsed by, or operated by
 > the JuiceWRLDAPI team. The archive source is **[JuiceWRLDAPI.com](https://juicewrldapi.com)** and
@@ -44,52 +43,57 @@ On Windows PowerShell, use `Copy-Item .env.example .env` for the copy step.
 ## Discord setup
 
 1. **Create the application** at the [Developer Portal](https://discord.com/developers/applications).
-   Copy the *Application ID* into `DISCORD_CLIENT_ID`.
+   Copy the *Application ID* — you need it for the invite URL below. Putting it in
+   `DISCORD_CLIENT_ID` is optional; nothing at runtime reads it.
 2. **Bot → Reset Token**, copy it into `DISCORD_TOKEN`. Never commit it.
 3. **Bot → Privileged Gateway Intents → enable "Message Content Intent."**
-   This is required for the `jw!` prefix surface. If it is off, the gateway *refuses the connection
-   outright* — the bot detects that, logs one warning naming this toggle, and reconnects in
-   **slash-only mode** rather than appearing to work while ignoring every message.
-4. **Invite the bot** with the scopes `bot` and `applications.commands` and permission integer
-   **`3230720`**:
+   **This is mandatory, not optional.** `jw!` is the only command surface, so without this intent the
+   bot has no commands at all. If it is off the gateway *refuses the connection outright* — the bot
+   detects that, logs one warning naming this exact toggle, and reconnects without it rather than
+   crash-looping. It will sit there online and inert until you turn it on.
+4. Also set **Public Bot → OFF** and leave **Requires OAuth2 Code Grant → OFF**. Leave *Server
+   Members* and *Presence* intents off; nothing in scope needs them.
+5. **Invite the bot** with the `bot` scope and permission integer **`3230720`**:
 
    ```
-   https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=3230720&scope=bot%20applications.commands
+   https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=3230720&scope=bot
    ```
 
    That integer is exactly: View Channels (1024) + Send Messages (2048) + Embed Links (16384) +
    Read Message History (65536) + Connect (1048576) + Speak (2097152). Nothing else is requested.
 
-5. **Restrict it.** This bot is built for private servers. Set `GUILD_ALLOWLIST` to your guild IDs —
+   The `applications.commands` scope is **not** needed — there are no slash commands. If you already
+   invited the bot with it, nothing breaks; the scope just goes unused.
+
+6. **Restrict it.** This bot is built for private servers. Set `GUILD_ALLOWLIST` to your guild IDs —
    the bot leaves any guild not on the list immediately after joining.
 
 ### Restricting commands to certain channels
 
-By default commands work in **every channel the bot can see**. Three ways to change that, strongest
-first:
+By default commands work in **every channel the bot can see**. Two ways to change that:
 
 - **Channel permission overwrites.** Deny the bot **View Channel** where you don't want it. It stops
-  receiving those messages entirely — nothing reaches the bot at all.
-- **Server Settings → Integrations → 999 Vault → Command Permissions.** Discord's native
-  per-command channel and role restrictions. This is the right tool for **slash** commands, and it
-  is enforced by Discord before the bot is involved.
-- **`CHANNEL_ALLOWLIST`** in `.env` — comma-separated channel IDs. This covers the **prefix**
-  surface, which the two options above can only restrict by hiding the channel from the bot
-  altogether. Outside the allowlist, `jw!` commands are ignored silently and slash commands get a
-  private reply pointing at the right channel.
+  receiving those messages entirely — nothing reaches the bot at all. This is the only real
+  enforcement.
+- **`CHANNEL_ALLOWLIST`** in `.env` — comma-separated channel IDs. For channels the bot must still be
+  able to read but should not take commands in. Outside the allowlist, `jw!` commands are ignored
+  silently, because replying "wrong channel" in the wrong channel is the noise you were trying to
+  avoid.
 
   ```
   CHANNEL_ALLOWLIST=1040000000000000010,1040000000000000011
   ```
 
   Treat this as convenience, not access control: the message still reaches the process. For anything
-  you actually need enforced, use the first two.
+  you actually need enforced, use permission overwrites.
+
+Note that **Server Settings → Integrations → Command Permissions has no effect here** — that feature
+only governs slash commands, and this bot has none.
 
 ## Commands
 
-Every command works as `jw!name` **and** `/name`, with identical behaviour — each is defined once and
-both surfaces route into it. The prefix is case-insensitive, so `JW!play` works. Aliases are
-prefix-only.
+The prefix is case-insensitive, so `JW!play` works. There are no slash commands — see
+[ADR 0006](docs/decisions/0006-prefix-only.md).
 
 | Command | Aliases | What it does |
 |---|---|---|

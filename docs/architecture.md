@@ -12,33 +12,32 @@ Most of the design follows from three decisions. Everything else is detail.
 
 ### 1. `CommandContext` separates commands from Discord
 
-A command never sees a `Message` or an `Interaction`. It sees a `CommandContext`:
+A command never sees a `Message`. It sees a `CommandContext`:
 
 ```js
 {
-  source: "prefix" | "slash",
+  source: "prefix",
   guildId, channelId, userId, userTag,
   memberVoiceChannelId,          // string | null
   getMemberVoiceChannel(),       // opaque handle passed to the audio layer
-  args,                          // string[]
-  rest,                          // raw remainder, quote-aware tokenized into args
+  args,                          // string[], quote-aware tokens
+  rest,                          // raw remainder after the command name
   reply(payload), editReply(payload), defer(),
   deps                           // injected services
 }
 ```
 
-`bot/context.js` builds this identically from a `messageCreate` event and from a
-`ChatInputCommandInteraction`. That is what lets one implementation serve both surfaces without a
-compatibility shim, and it is why the prompt's requirement — *a command is defined once* — is
-structurally true rather than a convention someone has to remember.
+`bot/context.js` builds it from a `messageCreate` event. Commands import nothing from `discord.js`,
+so the whole command layer is decoupled from the gateway rather than merely tidy about it.
 
-The slash surface reconstructs `rest` by reading declared options in declaration order and joining
-them with spaces. A slash `/play query:lucid dreams` and a prefix `jw!play lucid dreams` therefore
-arrive at the command as byte-identical `args` and `rest`. There is no second parsing path.
+This boundary originally existed to let one implementation serve both a prefix and a slash surface.
+The slash surface was removed in [ADR 0006](decisions/0006-prefix-only.md), and the boundary earned
+its keep anyway — the payoff that remains is testing. A fake context records reply payloads into an
+array, so a command runs against a mocked `ArchiveApi` and a fake player and is asserted on with no
+gateway, no voice connection, and no network. `source` is kept, and is always `"prefix"`.
 
-The payoff is testing: a fake context records reply payloads into an array, so a command can be run
-against a mocked `ArchiveApi` and a fake player and asserted on, with no gateway, no voice
-connection, and no network.
+`jw!` is now the only way in, which makes Message Content a single point of failure. That trade is
+argued in the ADR.
 
 ### 2. `GuildPlayer` is the single state authority
 
@@ -58,8 +57,8 @@ are keyed so that no guild can observe another's requests.
 
 ### 3. Purity is load-bearing, not stylistic
 
-`core/queue.js`, `api/search.js`, `api/normalize.js`, `bot/embeds.js`, `bot/router.js`, and
-`bot/slash.js` are pure: no I/O, no timers, no ambient randomness, no `discord.js`.
+`core/queue.js`, `api/search.js`, `api/normalize.js`, `bot/embeds.js`, and `bot/router.js` are pure:
+no I/O, no timers, no ambient randomness, no `discord.js`.
 
 This is not tidiness. Song resolution quality *is* the product, and the only way to iterate on
 scoring with confidence is to run it against captured fixtures thousands of times a second with no
@@ -74,9 +73,7 @@ broken, because an architectural rule that is only written down is a rule that e
 ```
  Discord gateway
       │
-      ├── messageCreate ──► bot/router.js (pure parse)  ─┐
-      │                                                  ├─► bot/context.js ─► CommandContext
-      └── interactionCreate ─► option read ──────────────┘
+      └── messageCreate ──► bot/router.js (pure parse) ──► bot/context.js ─► CommandContext
                                                               │
                                                               ▼
                                                      bot/commands/<name>.js

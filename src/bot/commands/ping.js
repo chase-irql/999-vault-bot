@@ -6,7 +6,6 @@ export default {
     category: "Utility",
     description: "Gateway latency, archive health, and memory use.",
     usage: "{prefix}ping",
-    options: [],
     guildOnly: false,
     async execute(ctx) {
         const { api, clock, startedAt, gatewayPing, memoryUsage } = ctx.deps;

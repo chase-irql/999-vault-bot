@@ -7,7 +7,6 @@ export default {
     category: "Archive",
     description: "Search the archive and list the top matches.",
     usage: "{prefix}search <query>",
-    options: [{ name: "query", description: "Title, alternate title, or era", type: "string", required: true }],
     guildOnly: false,
     notes: "Each result shows the exact `play` invocation for it, so an ambiguous title can be pinned by id.",
     async execute(ctx) {

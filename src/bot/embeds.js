@@ -184,7 +184,7 @@ export function helpEmbed(commands, { prefix }) {
         color: COLORS.info,
         title: "999 Vault commands",
         description:
-            `Prefix \`${prefix}\` (case-insensitive) or the matching slash command. ` +
+            `Prefix \`${prefix}\`, matched case-insensitively. ` +
             `Use \`${prefix}help <command>\` for arguments.\n` +
             "Radio mode suspends the queue rather than clearing it; `radio stop` puts you back where you were.",
         fields: grouped,
@@ -205,7 +205,6 @@ export function commandHelpEmbed(command, { prefix }) {
                     ? command.aliases.map((alias) => `\`${prefix}${alias}\``).join(", ")
                     : "none",
             },
-            { name: "Slash", value: `\`/${command.name}\`` },
             command.notes ? { name: "Notes", value: command.notes } : null,
         ],
     });

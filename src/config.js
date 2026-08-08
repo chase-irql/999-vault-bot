@@ -112,7 +112,10 @@ export function loadConfig(env) {
 
     return Object.freeze({
         token: requiredString(env, "DISCORD_TOKEN"),
-        clientId: snowflake(env, "DISCORD_CLIENT_ID", { required: true }),
+        // Optional: nothing at runtime reads it. It is documented because
+        // building the invite URL needs it, but a process that does not use a
+        // value must not refuse to start without one. See ADR 0006.
+        clientId: snowflake(env, "DISCORD_CLIENT_ID"),
         prefix: prefix(env),
         apiBaseUrl: httpsUrl(env, "API_BASE_URL", DEFAULTS.API_BASE_URL),
         guildAllowlist: snowflakeList(env, "GUILD_ALLOWLIST", "guild ID"),
