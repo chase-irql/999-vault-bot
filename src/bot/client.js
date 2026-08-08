@@ -224,6 +224,8 @@ export function createBotClient({ config, logger, deps }) {
         closing = true;
         deps.players?.destroyAll("shutdown");
         deps.radio?.stop();
+        // Drops every pending-disambiguation timer so nothing holds the loop open.
+        deps.pending?.clear();
         await client?.destroy().catch(() => {});
     }
 

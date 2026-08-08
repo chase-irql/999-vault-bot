@@ -214,4 +214,79 @@ export function normalizeStats(raw) {
     };
 }
 
+// --- 999 FM station status -------------------------------------------------
+
+/**
+ * `/radio/live/` reports `stream_url` as **http://**. Archive audio is never
+ * fetched over cleartext, so it is upgraded here, exactly as the desktop client
+ * does. Anything that is not an http(s) URL on the expected origin falls back to
+ * the known stream path.
+ */
+export function upgradeStreamUrl(rawUrl, apiBase) {
+    const fallback = `${String(apiBase).replace(/\/$/, "")}/radio/stream.mp3`;
+    if (typeof rawUrl !== "string" || !rawUrl.trim()) return fallback;
+    try {
+        const url = new URL(rawUrl.trim().replace(/^http:/i, "https:"));
+        if (url.protocol !== "https:") return fallback;
+        if (url.username || url.password) return fallback;
+        return url.toString();
+    } catch {
+        return fallback;
+    }
+}
+
+function normalizeTrack(raw) {
+    if (!isPlainObject(raw)) return null;
+    const elapsed = Number(raw.elapsed_ms);
+    const duration = Number(raw.duration_ms);
+    return {
+        title: cleanText(raw.title, { max: 300 }),
+        artist: cleanText(raw.artist, { max: 300 }),
+        album: cleanText(raw.album, { max: 300 }),
+        display: cleanText(raw.display, { max: 300 }),
+        elapsedMs: Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0,
+        durationMs: Number.isFinite(duration) && duration > 0 ? duration : null,
+    };
+}
+
+/** Seconds since the station last reported, beyond which its answer is not trusted. */
+export const STALE_LIMIT_SECONDS = 60;
+
+export function normalizeStation(raw, { apiBase } = {}) {
+    const record = isPlainObject(raw) ? raw : {};
+    const stale = Number(record.stale_seconds);
+    const listeners = Number(record.total_listeners);
+
+    const nowPlaying = normalizeTrack(record.now_playing);
+    const isLive = record.is_live === true;
+    const state = cleanText(record.state, { max: 40 });
+    const staleSeconds = Number.isFinite(stale) && stale >= 0 ? stale : null;
+
+    return {
+        station: cleanText(record.station, { fallback: "999 FM", max: 100 }),
+        state,
+        isLive,
+        djLine: cleanText(record.dj_line, { max: 300 }),
+        nowPlaying,
+        upNext: normalizeTrack(record.up_next),
+        queuePreview: (Array.isArray(record.queue_preview) ? record.queue_preview : [])
+            .map((line) => cleanText(line, { max: 300 }))
+            .filter(Boolean)
+            .slice(0, 10),
+        totalListeners: Number.isSafeInteger(listeners) && listeners >= 0 ? listeners : 0,
+        staleSeconds,
+        streamUrl: upgradeStreamUrl(record.stream_url, apiBase),
+        /**
+         * The station is only trusted when it says it is live, says it is
+         * playing, and reported recently. Otherwise the embed shows a degraded
+         * state rather than a confidently wrong now-playing.
+         */
+        degraded:
+            !isLive ||
+            state !== "playing" ||
+            !nowPlaying?.display ||
+            (staleSeconds !== null && staleSeconds > STALE_LIMIT_SECONDS),
+    };
+}
+
 export { AUDIO_EXTENSIONS, CATEGORIES, SITE_ORIGIN };

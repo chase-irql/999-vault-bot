@@ -1,5 +1,24 @@
 import help from "./help.js";
 import ping from "./ping.js";
+import play, { playNext } from "./play.js";
+import {
+    clear,
+    join,
+    leave,
+    loop,
+    move,
+    nowplaying,
+    pause,
+    queueCommand,
+    remove,
+    resume,
+    seek,
+    shuffle,
+    skip,
+    stop,
+    volume,
+} from "./playback.js";
+import radio from "./radio.js";
 import search from "./search.js";
 import song from "./song.js";
 import stats from "./stats.js";
@@ -19,9 +38,36 @@ import stats from "./stats.js";
  *   guildOnly    reject in DMs
  *   notes        optional extra paragraph for `help <command>`
  *   execute(ctx) receives a CommandContext, returns/throws
+ *
+ * Help and slash registration are both generated from this array. There is no
+ * second list to keep in sync.
  */
 
-const COMMANDS = [search, song, stats, ping, help];
+const COMMANDS = [
+    play,
+    playNext,
+    pause,
+    resume,
+    skip,
+    stop,
+    queueCommand,
+    nowplaying,
+    remove,
+    move,
+    clear,
+    shuffle,
+    loop,
+    seek,
+    volume,
+    join,
+    leave,
+    radio,
+    song,
+    search,
+    stats,
+    ping,
+    help,
+];
 
 function assertValid(commands) {
     const seen = new Map();

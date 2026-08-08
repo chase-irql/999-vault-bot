@@ -3,8 +3,12 @@ import { ArchiveApi } from "./api/client.js";
 import { createArchiveService } from "./api/resolve.js";
 import { createBotClient } from "./bot/client.js";
 import { createRegistry } from "./bot/commands/index.js";
+import { createPendingResolutions } from "./bot/pending.js";
 import { loadConfig, secretsOf } from "./config.js";
 import { resolveFfmpegPath, ffmpegVersion } from "./audio/ffmpeg.js";
+import { createRadioStation } from "./audio/radio.js";
+import { createPlayerRegistry } from "./audio/registry.js";
+import { createVoiceEvents } from "./audio/voice-events.js";
 import { AppError } from "./core/errors.js";
 import { createLogger, registerSecret } from "./core/logger.js";
 
@@ -63,12 +67,37 @@ async function main() {
         logger: logger.child({ module: "archive" }),
     });
 
+    // One player per guild, one registry for the process. The registry is the
+    // only thing that may construct or destroy a player.
+    const players = createPlayerRegistry({
+        config,
+        logger,
+        ffmpegPath: ffmpeg.path,
+        clock,
+    });
+
+    // One station poller for the whole process, regardless of how many guilds
+    // are listening.
+    const radio = createRadioStation({ api, config, logger, clock });
+
+    const pending = createPendingResolutions({ logger });
+
+    const voiceEvents = createVoiceEvents({
+        players,
+        logger,
+        clientUserId: () => bot.client?.user?.id ?? "",
+    });
+
     const deps = {
         config,
         logger,
         api,
         archive,
         registry,
+        players,
+        radio,
+        pending,
+        voiceEvents,
         clock,
         startedAt,
         ffmpeg,
