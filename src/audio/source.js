@@ -62,14 +62,14 @@ export function buildFfmpegArgs({ url, seekSeconds = 0, debug = false, headers =
  * @param {object} options
  * @param {string} options.ffmpegPath absolute path to the binary
  * @param {string} [options.url] HTTPS source
- * @param {(signal: AbortSignal) => Promise<object>} [options.resolveInput] Resolves a fresh HTTPS source
+ * @param {(signal: AbortSignal) => Promise<object[]>} [options.resolveInputs] Resolves fresh HTTPS sources
  * @param {number} [options.seekSeconds]
  * @param {object} [options.logger]
  * @param {(error: Error) => void} [options.onError] called when FFmpeg fails or exits non-zero
  * @returns {{ resource: import("@discordjs/voice").AudioResource, destroy: () => void }}
  */
 export function createSource({
-    ffmpegPath, url, resolveInput, seekSeconds = 0, logger = null, onError = null, metadata = null,
+    ffmpegPath, url, resolveInputs, seekSeconds = 0, logger = null, onError = null, metadata = null,
 }) {
     const abort = new AbortController();
     let child;
@@ -80,51 +80,77 @@ export function createSource({
         onError?.(error);
     };
 
-    function startDecoder(input) {
+    function startDecoder(input, onExit) {
         if (!/^https:\/\//i.test(String(input.url))) {
             throw new VoiceError("Refusing to stream over an insecure connection.");
         }
         const debug = logger?.level === "debug";
         const args = buildFfmpegArgs({ ...input, seekSeconds, debug });
-        child = spawn(ffmpegPath, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+        const decoder = spawn(ffmpegPath, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+        child = decoder;
 
         let stderr = "";
-        child.stderr.on("data", (chunk) => {
+        let startError;
+        decoder.stderr.on("data", (chunk) => {
             if (stderr.length < 4_000) stderr += String(chunk).slice(0, 4_000 - stderr.length);
         });
 
-        child.on("error", (error) => {
+        decoder.on("error", (error) => {
             logger?.error("ffmpeg failed to start", { code: error.code, ffmpegPath });
-            fail(new VoiceError("The audio decoder could not start."));
+            startError = new VoiceError("The audio decoder could not start.");
         });
 
-        child.on("close", (code, signal) => {
-            if (signal || code === 0 || code === null || settled) return;
-            logger?.debug("ffmpeg exited non-zero", {
-                code,
-                stderr: stderr.trim().replace(/https?:\/\/\S+/g, "[URL]").slice(0, 500),
-            });
-            fail(new VoiceError("The track stopped unexpectedly while decoding.", { code }));
+        decoder.on("close", (code, signal) => {
+            if (abort.signal.aborted) return;
+            if (code !== 0 && !startError) {
+                logger?.debug("ffmpeg exited non-zero", {
+                    code, signal,
+                    stderr: stderr.trim().replace(/https?:\/\/\S+/g, "[URL]").slice(0, 500),
+                });
+            }
+            const error = startError ?? (code === 0 ? null :
+                new VoiceError("The track stopped unexpectedly while decoding.", { code }));
+            onExit(error);
         });
-        return child.stdout;
+        return decoder.stdout;
     }
 
     let stream;
-    if (resolveInput) {
+    if (resolveInputs) {
         const output = new PassThrough();
         stream = output;
-        void resolveInput(abort.signal).then((input) => {
-            if (abort.signal.aborted) return;
-            // Let FFmpeg report a failed exit before the player sees the end of the stream.
-            startDecoder(input).pipe(output, { end: false });
-            child.once("close", () => output.end());
+        void resolveInputs(abort.signal).then((inputs) => {
+            const candidates = inputs[Symbol.iterator]();
+            function playNext(previousError) {
+                if (abort.signal.aborted) return;
+                const { value: input, done } = candidates.next();
+                if (done) {
+                    fail(previousError ?? new VoiceError("YouTube did not provide a playable audio stream."));
+                    output.end();
+                    return;
+                }
+
+                let started = false;
+                const decoded = startDecoder(input, (error) => {
+                    if (!started) {
+                        playNext(error);
+                        return;
+                    }
+                    if (error) fail(error);
+                    output.end();
+                });
+                // Retry an alternate YouTube format only before emitting any audio.
+                decoded.once("data", () => { started = true; });
+                decoded.pipe(output, { end: false });
+            }
+            playNext();
         }).catch((error) => {
             if (abort.signal.aborted) return;
             fail(error);
             output.end();
         });
     } else {
-        stream = startDecoder({ url });
+        stream = startDecoder({ url }, (error) => { if (error) fail(error); });
     }
 
     const resource = createAudioResource(stream, {

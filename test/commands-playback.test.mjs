@@ -86,9 +86,9 @@ describe("play", () => {
                 const youtubeUrl = youtubeVideoUrl(query);
                 return youtubeUrl ? { id: "jNQXAC9IVRw", title: "Me at the zoo", durationSeconds: 19, youtubeUrl } : null;
             },
-            resolveInput: async (url) => {
+            resolveInputs: async (url) => {
                 requested.push(url);
-                return { url: streamUrl };
+                return [{ url: streamUrl }];
             },
         };
         const deps = harness({ youtube });
@@ -101,10 +101,10 @@ describe("play", () => {
         assert.equal(deps.createSourceFn.created.length, 1);
 
         await run("skip", deps);
-        assert.deepEqual(await deps.createSourceFn.last().options.resolveInput(), { url: streamUrl });
+        assert.deepEqual(await deps.createSourceFn.last().options.resolveInputs(), [{ url: streamUrl }]);
         await run("seek", deps, { rest: "4" });
         assert.equal(deps.createSourceFn.last().options.seekSeconds, 4);
-        await deps.createSourceFn.last().options.resolveInput();
+        await deps.createSourceFn.last().options.resolveInputs();
         assert.deepEqual(requested, [videoUrl, videoUrl]);
         const nowPlaying = lastEmbed(await run("nowplaying", deps));
         assert.equal(nowPlaying.url, videoUrl);

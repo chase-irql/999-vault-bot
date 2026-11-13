@@ -226,7 +226,7 @@ export function createGuildPlayer({
         seekOffsetSeconds = item.song.isLive ? 0 : seekSeconds;
         const token = sourceToken;
         const input = item.song.youtubeUrl
-            ? { resolveInput: (signal) => youtube.resolveInput(item.song.youtubeUrl, signal) }
+            ? { resolveInputs: (signal) => youtube.resolveInputs(item.song.youtubeUrl, signal) }
             : { url: item.song.streamUrl };
 
         source = createSourceFn({

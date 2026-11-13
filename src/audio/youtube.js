@@ -5,7 +5,7 @@ import { UserError, VoiceError } from "../core/errors.js";
 const execFileAsync = promisify(execFile);
 const YOUTUBE_HOST = /^(?:(?:www|m|music)\.)?youtube\.com$/;
 const VIDEO_ID = /^[\w-]{11}$/;
-const FORMAT = "bestaudio[protocol=https]/bestaudio[protocol^=m3u8]/best[protocol=https]/best[protocol^=m3u8]";
+const FORMAT = "(bestaudio[protocol=https]/best[protocol=https]),(bestaudio[protocol^=m3u8]/best[protocol^=m3u8])";
 const FIELDS = "%(.{id,title,duration,thumbnail,live_status,section_start,section_end,url,http_headers})j";
 const MEDIA_HEADERS = new Set(["user-agent", "referer", "origin", "accept", "accept-language", "sec-fetch-mode"]);
 
@@ -69,21 +69,22 @@ export function createYouTube({ ytDlpPath, nodePath, logger }) {
             throw new UserError("I could not open that video's audio on YouTube. Check that the video is available without signing in.");
         }
 
-        let info;
+        let formats;
         try {
-            info = JSON.parse(stdout);
+            formats = stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line));
         } catch {
             throw new VoiceError("YouTube returned an unreadable audio response.");
         }
-        if (!isYouTubeMedia(info?.url)) throw new VoiceError("YouTube did not provide a playable audio stream.");
-        return info;
+        const playable = formats.filter((info) => isYouTubeMedia(info?.url));
+        if (!playable.length) throw new VoiceError("YouTube did not provide a playable audio stream.");
+        return playable;
     }
 
     return {
         async resolveTrack(query) {
             const youtubeUrl = youtubeVideoUrl(query);
             if (!youtubeUrl) return null;
-            const info = await extract(youtubeUrl);
+            const [info] = await extract(youtubeUrl);
             const isLive = info.live_status === "is_live";
             const thumbnail = typeof info.thumbnail === "string" ? URL.parse(info.thumbnail) : null;
             return {
@@ -97,18 +98,17 @@ export function createYouTube({ ytDlpPath, nodePath, logger }) {
             };
         },
 
-        async resolveInput(url, signal) {
-            const info = await extract(url, signal);
-            const headers = Object.entries(info.http_headers ?? {})
-                .filter(([name, value]) => MEDIA_HEADERS.has(name.toLowerCase()) &&
-                    typeof value === "string" && !/[\r\n\0]/.test(value))
-                .map(([name, value]) => `${name}: ${value}\r\n`).join("");
-            return {
+        async resolveInputs(url, signal) {
+            const formats = await extract(url, signal);
+            return formats.map((info) => ({
                 url: info.url,
-                headers,
+                headers: Object.entries(info.http_headers ?? {})
+                    .filter(([name, value]) => MEDIA_HEADERS.has(name.toLowerCase()) &&
+                        typeof value === "string" && !/[\r\n\0]/.test(value))
+                    .map(([name, value]) => `${name}: ${value}\r\n`).join(""),
                 sectionStart: info.section_start,
                 sectionEnd: info.section_end,
-            };
+            }));
         },
     };
 }
