@@ -47,6 +47,7 @@ export function createGuildPlayer({
     clock = Date,
     rng = Math.random,
     onDestroy = null,
+    youtube,
     voice = REAL_VOICE,
     createSourceFn = createSource,
 }) {
@@ -83,7 +84,7 @@ export function createGuildPlayer({
     let bufferingSeen = 0;
 
     /**
-     * Increments on every resource start. A source that fails *after* the player
+     * Increments whenever a resource is replaced or stopped. A source that fails *after* the player
      * has already moved on (skip, seek, stop) would otherwise skip a second
      * track — one the listener never heard fail.
      */
@@ -116,6 +117,7 @@ export function createGuildPlayer({
     }
 
     function stopSource() {
+        sourceToken += 1;
         source?.destroy();
         source = null;
     }
@@ -221,20 +223,25 @@ export function createGuildPlayer({
         stopSource();
         status = "loading";
         bufferingSeen = 0;
-        seekOffsetSeconds = seekSeconds;
-        const token = (sourceToken += 1);
+        seekOffsetSeconds = item.song.isLive ? 0 : seekSeconds;
+        const token = sourceToken;
+        const input = item.song.youtubeUrl
+            ? { resolveInput: (signal) => youtube.resolveInput(item.song.youtubeUrl, signal) }
+            : { url: item.song.streamUrl };
 
         source = createSourceFn({
             ffmpegPath,
-            url: item.song.streamUrl,
-            seekSeconds,
+            ...input,
+            seekSeconds: seekOffsetSeconds,
             logger: log,
             metadata: { guildId, songId: item.song.id },
             onError: (error) => {
-                if (token !== sourceToken) return; // stale source; we already moved on
-                log.warn("audio source failed", { songId: item.song.id, error });
-                // Skip past a track that will not decode rather than sitting on it.
-                void withLock(() => advance({ skipping: true, failed: item }));
+                void withLock(() => {
+                    if (token !== sourceToken) return;
+                    log.warn("audio source failed", { songId: item.song.id, error });
+                    item.onError?.(error);
+                    return advance({ failed: true });
+                });
             },
         });
 
@@ -244,7 +251,7 @@ export function createGuildPlayer({
     }
 
     /** Advances the queue honouring loop mode, or goes idle. */
-    async function advance({ skipping = false, failed = null } = {}) {
+    async function advance({ skipping = false, failed = false } = {}) {
         if (destroyed) return null;
 
         if (radioMode) {
@@ -279,8 +286,7 @@ export function createGuildPlayer({
             events.emit("random-failed");
         }
 
-        const finished = failed ?? current;
-        const result = queue.advance(state, finished, { skipping });
+        const result = queue.advance(state, failed ? null : current, { skipping });
         state = result.state;
 
         if (!result.next) {
@@ -336,13 +342,15 @@ export function createGuildPlayer({
 
     player.on(AudioPlayerStatus.Idle, (oldState) => {
         if (destroyed) return;
-        if (oldState.status !== AudioPlayerStatus.Playing && oldState.status !== AudioPlayerStatus.Paused) return;
 
         if (radioMode) {
+            if (oldState.status !== AudioPlayerStatus.Playing && oldState.status !== AudioPlayerStatus.Paused) return;
             void reconnectRadio("stream ended");
             return;
         }
-        void withLock(() => advance());
+        const token = sourceToken;
+        const failed = oldState.status === AudioPlayerStatus.Buffering;
+        void withLock(() => token === sourceToken && advance({ failed }));
     });
 
     player.on("error", (error) => {
@@ -351,7 +359,8 @@ export function createGuildPlayer({
             void reconnectRadio("player error");
             return;
         }
-        void withLock(() => advance({ skipping: true }));
+        const token = sourceToken;
+        void withLock(() => token === sourceToken && advance({ failed: true }));
     });
 
     // --- radio -------------------------------------------------------------
@@ -388,7 +397,7 @@ export function createGuildPlayer({
         stopSource();
         status = "loading";
         seekOffsetSeconds = 0;
-        const token = (sourceToken += 1);
+        const token = sourceToken;
 
         source = createSourceFn({
             ffmpegPath,
@@ -584,7 +593,7 @@ export function createGuildPlayer({
          * Adds a song and starts playback if nothing is playing.
          * @returns {Promise<{ position: number, started: boolean }>}
          */
-        enqueue(song, { requesterId, channel, next = false }) {
+        enqueue(song, { requesterId, channel, next = false, onError }) {
             return withLock(async () => {
                 await connect(channel);
                 if (radioMode) {
@@ -598,7 +607,7 @@ export function createGuildPlayer({
                     );
                 }
 
-                const item = { song, requesterId };
+                const item = { song, requesterId, ...(onError ? { onError } : {}) };
                 const result = next ? queue.enqueueNext(state, item) : queue.enqueue(state, item);
                 if (isErr(result)) throw new UserError(result.error);
                 state = result.value;
@@ -657,6 +666,7 @@ export function createGuildPlayer({
                     throw new UserError("999 FM is a live stream. It cannot be seeked.");
                 }
                 if (!current) throw new UserError("Nothing is playing.");
+                if (current.song.isLive) throw new UserError("YouTube live streams cannot be seeked.");
                 const total = current.song.durationSeconds;
                 if (Number.isFinite(total) && seconds >= total) {
                     throw new UserError(`That is past the end of the track (${Math.floor(total)}s).`);

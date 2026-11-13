@@ -197,14 +197,18 @@ describe("advancing", () => {
     });
 
     test("a failing source skips the track instead of stalling on it", async () => {
-        const { player, channel, createSourceFn } = build();
+        const { player, voice, channel, createSourceFn } = build();
         await enqueue(player, channel, 1);
         await enqueue(player, channel, 2);
+        await enqueue(player, channel, 3);
+        player.setLoop("queue");
 
         createSourceFn.created[0].options.onError(new Error("ffmpeg died"));
+        voice.lastPlayer.finishTrack();
         await new Promise((resolve) => setImmediate(resolve));
 
         assert.equal(player.snapshot().current.song.id, 2);
+        assert.deepEqual(player.snapshot().queue.map((entry) => entry.song.id), [3]);
     });
 
     test("skipping with nothing playing is a user error", async () => {

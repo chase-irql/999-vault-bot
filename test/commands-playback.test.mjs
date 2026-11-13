@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
+import { youtubeVideoUrl } from "../src/audio/youtube.js";
 import { createPlayerRegistry } from "../src/audio/registry.js";
 import { createRegistry } from "../src/bot/commands/index.js";
 import { createPendingResolutions } from "../src/bot/pending.js";
@@ -16,7 +17,7 @@ import { fakeChannel, fakeSourceFactory, fakeVoice, song } from "./helpers/voice
 const registry = createRegistry();
 const GUILD = "1040000000000000001";
 
-function harness({ resolveResult, searchResult } = {}) {
+function harness({ resolveResult, searchResult, youtube } = {}) {
     const voice = fakeVoice();
     const createSourceFn = fakeSourceFactory();
     const config = testConfig();
@@ -25,6 +26,7 @@ function harness({ resolveResult, searchResult } = {}) {
         config,
         logger: silentLogger(),
         ffmpegPath: "C:/fake/ffmpeg.exe",
+        youtube,
         rng: () => 0,
         voice,
         createSourceFn,
@@ -54,7 +56,7 @@ function harness({ resolveResult, searchResult } = {}) {
         fetch: async () => ({}),
     };
 
-    return { players, archive, pending, radio, voice, createSourceFn, config };
+    return { players, archive, youtube, pending, radio, voice, createSourceFn, config };
 }
 
 function ctxFor(name, deps, { args = [], rest = args.join(" "), voiceChannel = fakeChannel() } = {}) {
@@ -75,6 +77,54 @@ const run = async (name, deps, options) => {
 };
 
 describe("play", () => {
+    test("YouTube links queue their own audio and resolve a fresh stream on playback and seek", async () => {
+        const videoUrl = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
+        const streamUrl = "https://rr1.googlevideo.com/videoplayback";
+        const requested = [];
+        const youtube = {
+            async resolveTrack(query) {
+                const youtubeUrl = youtubeVideoUrl(query);
+                return youtubeUrl ? { id: "jNQXAC9IVRw", title: "Me at the zoo", durationSeconds: 19, youtubeUrl } : null;
+            },
+            resolveInput: async (url) => {
+                requested.push(url);
+                return { url: streamUrl };
+            },
+        };
+        const deps = harness({ youtube });
+        await run("play", deps, { rest: "one" });
+        deps.archive.resolve = async () => assert.fail("YouTube must bypass archive search");
+
+        const ctx = await run("playnext", deps, { rest: "<https://youtu.be/jNQXAC9IVRw?list=PL123>" });
+        assert.equal(lastEmbed(ctx).url, videoUrl);
+        assert.match(lastEmbed(ctx).description, /YouTube/);
+        assert.equal(deps.createSourceFn.created.length, 1);
+
+        await run("skip", deps);
+        assert.deepEqual(await deps.createSourceFn.last().options.resolveInput(), { url: streamUrl });
+        await run("seek", deps, { rest: "4" });
+        assert.equal(deps.createSourceFn.last().options.seekSeconds, 4);
+        await deps.createSourceFn.last().options.resolveInput();
+        assert.deepEqual(requested, [videoUrl, videoUrl]);
+        const nowPlaying = lastEmbed(await run("nowplaying", deps));
+        assert.equal(nowPlaying.url, videoUrl);
+        assert.match(nowPlaying.footer.text, /YouTube/);
+    });
+
+    test("YouTube URL forms resolve to one video and playlist pages are rejected", () => {
+        const id = "jNQXAC9IVRw";
+        const expected = `https://www.youtube.com/watch?v=${id}`;
+        for (const url of [
+            `https://www.youtube.com/watch?v=${id}&list=PL123`, `youtu.be/${id}`,
+            `https://m.youtube.com/shorts/${id}`, `https://youtube.com/live/${id}`,
+            `https://music.youtube.com/watch?v=${id}`, `https://www.youtube-nocookie.com/embed/${id}`,
+        ]) assert.equal(youtubeVideoUrl(url), expected);
+        assert.equal(youtubeVideoUrl("https://youtube.com/clip/UgytZKpehg-hEMBSn3F4AaABCQ"),
+            "https://www.youtube.com/clip/UgytZKpehg-hEMBSn3F4AaABCQ");
+        assert.equal(youtubeVideoUrl(`https://youtube.com.example.org/watch?v=${id}`), null);
+        assert.throws(() => youtubeVideoUrl("https://www.youtube.com/playlist?list=PL123"), UserError);
+    });
+
     test("resolves, joins, and starts the track", async () => {
         const deps = harness();
         const ctx = await run("play", deps, { rest: "lucid dreams" });

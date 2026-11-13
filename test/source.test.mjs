@@ -42,6 +42,16 @@ describe("buildFfmpegArgs", () => {
         assert.equal(args[indexOf(args, "-analyzeduration") + 1], "0");
     });
 
+    test("limits a YouTube clip to its remaining duration and maps only audio", () => {
+        const headers = "User-Agent: example\r\n";
+        const args = buildFfmpegArgs({ url: URL, headers, sectionStart: 5.5, sectionEnd: 11, seekSeconds: 2 });
+        assert.equal(args[indexOf(args, "-headers") + 1], headers);
+        assert.ok(indexOf(args, "-headers") < indexOf(args, "-i"));
+        assert.equal(args[indexOf(args, "-ss") + 1], "7.5");
+        assert.equal(args[indexOf(args, "-t") + 1], "3.5");
+        assert.equal(args[indexOf(args, "-map") + 1], "0:a:0");
+    });
+
     test("no seek offset is emitted when starting from the beginning", () => {
         assert.equal(buildFfmpegArgs({ url: URL }).includes("-ss"), false);
         assert.equal(buildFfmpegArgs({ url: URL, seekSeconds: 0 }).includes("-ss"), false);

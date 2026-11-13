@@ -14,6 +14,7 @@ export function createPlayerRegistry({
     config,
     logger,
     ffmpegPath,
+    youtube,
     clock = Date,
     rng = Math.random,
     // Passed straight through so a test registry builds players with fake voice
@@ -38,6 +39,7 @@ export function createPlayerRegistry({
             config,
             logger,
             ffmpegPath,
+            youtube,
             clock,
             rng,
             ...(voice ? { voice } : {}),

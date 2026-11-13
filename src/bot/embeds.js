@@ -130,6 +130,7 @@ function base({ color, title, description, ...rest }) {
     if (title !== undefined) embed.title = clamp(title, LIMITS.title);
     if (description !== undefined) embed.description = clamp(description, LIMITS.description);
     if (rest.author) embed.author = { name: clamp(rest.author, LIMITS.authorName) };
+    if (rest.url) embed.url = rest.url;
     if (rest.footer) embed.footer = { text: clamp(rest.footer, LIMITS.footer) };
     if (rest.thumbnail) embed.thumbnail = { url: rest.thumbnail };
     if (rest.fields) embed.fields = fields(rest.fields);
@@ -331,40 +332,44 @@ export function nowPlayingEmbed({
     queueLength = 0,
 }) {
     const total = song.durationSeconds;
-    const bar = progressBar(elapsedSeconds, total);
-    const position = `\`${formatDuration(elapsedSeconds)}\` ${bar} \`${formatDuration(total)}\``;
+    const position = song.isLive ? "Live on YouTube" :
+        `\`${formatDuration(elapsedSeconds)}\` ${progressBar(elapsedSeconds, total)} \`${formatDuration(total)}\``;
 
     return base({
         color: COLORS.playback,
         author: paused ? "Paused" : "Now playing",
         title: safe(song.title, LIMITS.title),
+        url: song.youtubeUrl,
         description: position,
         thumbnail: song.imageUrl || undefined,
         fields: [
-            { name: "Era", value: safe(song.era?.name ?? "Unknown", 200), inline: true },
-            { name: "Category", value: categoryLabel(song.category), inline: true },
+            ...(song.youtubeUrl ? [] : [
+                { name: "Era", value: safe(song.era?.name ?? "Unknown", 200), inline: true },
+                { name: "Category", value: categoryLabel(song.category), inline: true },
+            ]),
             { name: "Volume", value: `${volume}%`, inline: true },
             { name: "Loop", value: LOOP_LABELS[loopMode] ?? "Off", inline: true },
             { name: "Up next", value: queueLength > 0 ? `${queueLength} queued` : "Nothing queued", inline: true },
             { name: "Requested by", value: requesterId ? `<@${requesterId}>` : "unknown", inline: true },
         ],
-        footer: "Archive source: JuiceWRLDAPI.com",
+        footer: song.youtubeUrl ? "Source: YouTube" : "Archive source: JuiceWRLDAPI.com",
     });
 }
 
 export function queuedEmbed({ song, position, requesterId }) {
     // The requester goes in the description, not the footer: Discord does not
     // render mentions in footer text, so `<@id>` would show as raw markup.
-    const meta = `\`${formatDuration(song.durationSeconds)}\` · ${categoryLabel(song.category)}${
-        song.era?.name ? ` · ${safe(song.era.name, 60)}` : ""
-    }`;
+    const duration = song.isLive ? "Live" : `\`${formatDuration(song.durationSeconds)}\``;
+    const category = song.youtubeUrl ? "YouTube" : categoryLabel(song.category);
+    const meta = `${duration} · ${category}${song.era?.name ? ` · ${safe(song.era.name, 60)}` : ""}`;
     return base({
         color: COLORS.success,
         author: position === 0 ? "Playing now" : `Queued at position ${position}`,
         title: safe(song.title, LIMITS.title),
+        url: song.youtubeUrl,
         description: requesterId ? `${meta}\nRequested by <@${requesterId}>` : meta,
         thumbnail: song.imageUrl || undefined,
-        footer: "Archive source: JuiceWRLDAPI.com",
+        footer: song.youtubeUrl ? undefined : "Archive source: JuiceWRLDAPI.com",
     });
 }
 

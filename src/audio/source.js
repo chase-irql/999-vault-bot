@@ -1,13 +1,13 @@
 import { spawn } from "node:child_process";
+import { PassThrough } from "node:stream";
 import { StreamType, createAudioResource } from "@discordjs/voice";
 import { VoiceError } from "../core/errors.js";
 
 /**
  * Song (or radio stream) -> AudioResource.
  *
- * FFmpeg reads the HTTPS URL directly and writes raw PCM to stdout. Nothing is
- * downloaded to disk, nothing is buffered in memory, and no temp file is
- * written — the archive supports Range, so FFmpeg streams and seeks in place.
+ * FFmpeg reads the HTTPS URL directly and writes raw PCM to stdout. YouTube
+ * URLs are resolved when playback starts so queued tracks get fresh URLs.
  *
  * Why the binary is spawned here rather than through `prism.FFmpeg`:
  * prism-media resolves its own command with a fixed search order
@@ -28,18 +28,22 @@ const RAW_PCM_OUTPUT = ["-f", "s16le", "-ar", "48000", "-ac", "2"];
 const RECONNECT = ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"];
 
 /**
- * @param {{ url: string, seekSeconds?: number, debug?: boolean }} options
+ * @param {{ url: string, seekSeconds?: number, debug?: boolean, headers?: string, sectionStart?: number, sectionEnd?: number }} options
  * @returns {string[]} argv after the binary
  */
-export function buildFfmpegArgs({ url, seekSeconds = 0, debug = false }) {
-    const seek = Number(seekSeconds);
+export function buildFfmpegArgs({ url, seekSeconds = 0, debug = false, headers = "", sectionStart, sectionEnd }) {
+    const offset = Number.isFinite(sectionStart) ? sectionStart : 0;
+    const seconds = Number(seekSeconds);
+    const seek = offset + (Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0);
     const args = [...RECONNECT];
 
     // `-ss` before `-i` is input seeking: FFmpeg jumps using the container index
     // and a Range request instead of decoding and discarding everything first.
-    if (Number.isFinite(seek) && seek > 0) args.push("-ss", String(Math.floor(seek)));
+    if (seek > 0) args.push("-ss", String(seek));
+    if (headers) args.push("-rw_timeout", "15000000", "-headers", headers);
 
     args.push("-i", url);
+    if (Number.isFinite(sectionEnd)) args.push("-t", String(sectionEnd - seek));
     args.push("-analyzeduration", "0");
 
     // The brief specifies `-loglevel 0`, and it also requires FFmpeg's stderr to
@@ -48,7 +52,7 @@ export function buildFfmpegArgs({ url, seekSeconds = 0, debug = false }) {
     // operator has asked for debug.
     args.push("-loglevel", debug ? "error" : "0");
 
-    args.push(...RAW_PCM_OUTPUT, "pipe:1");
+    args.push("-map", "0:a:0", ...RAW_PCM_OUTPUT, "pipe:1");
     return args;
 }
 
@@ -57,24 +61,18 @@ export function buildFfmpegArgs({ url, seekSeconds = 0, debug = false }) {
  *
  * @param {object} options
  * @param {string} options.ffmpegPath absolute path to the binary
- * @param {string} options.url HTTPS source; cleartext is refused
+ * @param {string} [options.url] HTTPS source
+ * @param {(signal: AbortSignal) => Promise<object>} [options.resolveInput] Resolves a fresh HTTPS source
  * @param {number} [options.seekSeconds]
  * @param {object} [options.logger]
  * @param {(error: Error) => void} [options.onError] called when FFmpeg fails or exits non-zero
  * @returns {{ resource: import("@discordjs/voice").AudioResource, destroy: () => void }}
  */
-export function createSource({ ffmpegPath, url, seekSeconds = 0, logger = null, onError = null, metadata = null }) {
-    if (!/^https:\/\//i.test(String(url))) {
-        // Archive audio is never fetched over cleartext, including the station
-        // URL the API hands back as http://.
-        throw new VoiceError("Refusing to stream over an insecure connection.", { url: String(url).slice(0, 12) });
-    }
-
-    const debug = logger?.level === "debug";
-    const args = buildFfmpegArgs({ url, seekSeconds, debug });
-    const child = spawn(ffmpegPath, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-
-    let stderr = "";
+export function createSource({
+    ffmpegPath, url, resolveInput, seekSeconds = 0, logger = null, onError = null, metadata = null,
+}) {
+    const abort = new AbortController();
+    let child;
     let settled = false;
     const fail = (error) => {
         if (settled) return;
@@ -82,41 +80,70 @@ export function createSource({ ffmpegPath, url, seekSeconds = 0, logger = null, 
         onError?.(error);
     };
 
-    child.stderr?.on("data", (chunk) => {
-        // Bounded: a chatty FFmpeg must not grow this without limit.
-        if (stderr.length < 4_000) stderr += String(chunk);
-    });
+    function startDecoder(input) {
+        if (!/^https:\/\//i.test(String(input.url))) {
+            throw new VoiceError("Refusing to stream over an insecure connection.");
+        }
+        const debug = logger?.level === "debug";
+        const args = buildFfmpegArgs({ ...input, seekSeconds, debug });
+        child = spawn(ffmpegPath, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
 
-    child.on("error", (error) => {
-        logger?.error("ffmpeg failed to start", { error, ffmpegPath });
-        fail(new VoiceError("The audio decoder could not start.", { cause: error }));
-    });
+        let stderr = "";
+        child.stderr.on("data", (chunk) => {
+            if (stderr.length < 4_000) stderr += String(chunk).slice(0, 4_000 - stderr.length);
+        });
 
-    child.on("close", (code, signal) => {
-        // SIGKILL is how this module stops a source on skip or stop; that is not
-        // a failure. A non-zero exit on its own is.
-        if (signal || code === 0 || code === null) return;
-        logger?.debug("ffmpeg exited non-zero", { code, stderr: stderr.trim().slice(0, 500) });
-        fail(new VoiceError("The track stopped unexpectedly while decoding.", { code }));
-    });
+        child.on("error", (error) => {
+            logger?.error("ffmpeg failed to start", { code: error.code, ffmpegPath });
+            fail(new VoiceError("The audio decoder could not start."));
+        });
 
-    const resource = createAudioResource(child.stdout, {
+        child.on("close", (code, signal) => {
+            if (signal || code === 0 || code === null || settled) return;
+            logger?.debug("ffmpeg exited non-zero", {
+                code,
+                stderr: stderr.trim().replace(/https?:\/\/\S+/g, "[URL]").slice(0, 500),
+            });
+            fail(new VoiceError("The track stopped unexpectedly while decoding.", { code }));
+        });
+        return child.stdout;
+    }
+
+    let stream;
+    if (resolveInput) {
+        const output = new PassThrough();
+        stream = output;
+        void resolveInput(abort.signal).then((input) => {
+            if (abort.signal.aborted) return;
+            // Let FFmpeg report a failed exit before the player sees the end of the stream.
+            startDecoder(input).pipe(output, { end: false });
+            child.once("close", () => output.end());
+        }).catch((error) => {
+            if (abort.signal.aborted) return;
+            fail(error);
+            output.end();
+        });
+    } else {
+        stream = startDecoder({ url });
+    }
+
+    const resource = createAudioResource(stream, {
         inputType: StreamType.Raw,
         inlineVolume: true,
         metadata,
     });
 
-    let destroyed = false;
     const destroy = () => {
-        if (destroyed) return;
-        destroyed = true;
+        if (abort.signal.aborted) return;
         settled = true;
-        child.stdout?.destroy();
-        child.stderr?.destroy();
-        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        abort.abort();
+        stream.destroy();
+        child?.stdout.destroy();
+        child?.stderr.destroy();
+        if (child?.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     };
 
-    return { resource, destroy, process: child };
+    return { resource, destroy };
 }
 
 export { RAW_PCM_OUTPUT, RECONNECT };

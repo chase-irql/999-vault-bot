@@ -1,7 +1,7 @@
 # 999 Vault Bot
 
-A self-hosted Discord music bot that streams any song in the JuiceWRLDAPI archive into a voice
-channel and relays the live 999 FM station. Driven entirely by `jw!` prefix commands.
+A self-hosted Discord music bot that streams the JuiceWRLDAPI archive, direct YouTube video links,
+and the live 999 FM station into voice channels. Driven entirely by `jw!` prefix commands.
 
 > **999 Vault is an independent project.** It is not affiliated with, endorsed by, or operated by
 > the JuiceWRLDAPI team. The archive source is **[JuiceWRLDAPI.com](https://juicewrldapi.com)** and
@@ -17,6 +17,9 @@ channel and relays the live 999 FM station. Driven entirely by `jw!` prefix comm
 - A Discord application with a bot user.
 - **No compiler and no system FFmpeg required.** FFmpeg ships via `ffmpeg-static`; voice encryption
   is pure JS via `@noble/ciphers`.
+- For YouTube playback, install a current [official yt-dlp release](https://github.com/yt-dlp/yt-dlp/releases/latest)
+  with the bundled YouTube challenge scripts. Put it on `PATH` or set `YT_DLP_PATH` to the executable.
+  The bot uses its existing Node.js runtime with yt-dlp.
 
 ## Install and run
 
@@ -97,8 +100,8 @@ The prefix is case-insensitive, so `JW!play` works. There are no slash commands 
 
 | Command | Aliases | What it does |
 |---|---|---|
-| `jw!play <query\|id>` | `p` | Resolve a track, join your channel, play or queue it. |
-| `jw!playnext <query\|id>` | `pn` | Same, but next in line. |
+| `jw!play <query\|id\|YouTube URL>` | `p` | Play or queue an archive track or a direct YouTube video link. |
+| `jw!playnext <query\|id\|YouTube URL>` | `pn` | Put the track next in line. |
 | `jw!random [stop]` | `endless` | Endless random archive shuffle; stop restores your suspended queue. |
 | `jw!pause` / `jw!resume` | `unpause` | Pause and resume. |
 | `jw!skip` | `s`, `next` | Next track. |
@@ -118,6 +121,10 @@ The prefix is case-insensitive, so `JW!play` works. There are no slash commands 
 | `jw!stats` | | Archive totals and bot status. |
 | `jw!help [command]` | `h` | Everything above, generated from the registry. |
 | `jw!ping` | | Latency and memory. |
+
+**YouTube.** Try `jw!play https://youtu.be/jNQXAC9IVRw`. Watch, share, Shorts, live, embed, and clip
+links play audio from the linked YouTube video. A video link with a playlist parameter plays the
+single video. The Pi or other bot host must be able to open the video without signing in.
 
 **Ambiguous titles.** The archive holds 2,500+ entries with alternate titles, working titles and
 leaked variants. When several genuinely match, `play` shows a numbered list — reply with a number

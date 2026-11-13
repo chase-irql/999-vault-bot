@@ -122,6 +122,7 @@ export function loadConfig(env) {
         channelAllowlist: snowflakeList(env, "CHANNEL_ALLOWLIST", "channel ID"),
         logLevel,
         ffmpegPath: optionalString(env, "FFMPEG_PATH"),
+        ytDlpPath: optionalString(env, "YT_DLP_PATH", "yt-dlp"),
         idleDisconnectMs: integer(env, "IDLE_DISCONNECT_MS", DEFAULTS.IDLE_DISCONNECT_MS, {
             min: 5_000,
             max: 3_600_000,

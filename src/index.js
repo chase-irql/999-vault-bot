@@ -9,6 +9,7 @@ import { resolveFfmpegPath, ffmpegVersion } from "./audio/ffmpeg.js";
 import { createRadioStation } from "./audio/radio.js";
 import { createPlayerRegistry } from "./audio/registry.js";
 import { createVoiceEvents } from "./audio/voice-events.js";
+import { createYouTube } from "./audio/youtube.js";
 import { AppError } from "./core/errors.js";
 import { createLogger, registerSecret } from "./core/logger.js";
 
@@ -66,6 +67,11 @@ async function main() {
         clock,
         logger: logger.child({ module: "archive" }),
     });
+    const youtube = createYouTube({
+        ytDlpPath: config.ytDlpPath,
+        nodePath: process.execPath,
+        logger: logger.child({ module: "youtube" }),
+    });
 
     // One player per guild, one registry for the process. The registry is the
     // only thing that may construct or destroy a player.
@@ -73,6 +79,7 @@ async function main() {
         config,
         logger,
         ffmpegPath: ffmpeg.path,
+        youtube,
         clock,
     });
 
@@ -93,6 +100,7 @@ async function main() {
         logger,
         api,
         archive,
+        youtube,
         registry,
         players,
         radio,
